@@ -12,6 +12,7 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 )
 
+// BashTool executes shell commands in the workspace.
 type BashTool struct {
 	workDir string // 工作区约束
 }
@@ -27,13 +28,13 @@ func (t *BashTool) Name() string {
 func (t *BashTool) Definition() schema.ToolDefinition {
 	return schema.ToolDefinition{
 		Name:        t.Name(),
-		Description: "在当前工作区执行任意的 bash 命令。支持链式命令(如 &&)。返回标准输出(stdout)和标准错误(stderr)。",
+		Description: "Execute a bash command in the workspace. Supports chained commands (&&). Returns combined stdout and stderr.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"command": map[string]interface{}{
 					"type":        "string",
-					"description": "要执行的 bash 命令，例如: ls -la 或 go test ./...",
+					"description": "The bash command to run, e.g. ls -la or go test ./...",
 				},
 				"timeout_s": map[string]interface{}{
 					"type":        "integer",
@@ -53,7 +54,7 @@ type bashArgs struct {
 func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var input bashArgs
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("参数解析失败: %w", err)
+		return "", fmt.Errorf("parse arguments: %w", err)
 	}
 
 	const defaultTimeout = 30 * time.Second
@@ -81,21 +82,20 @@ func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 	out, err := cmd.CombinedOutput()
 	outputStr := string(out)
 
-	// 如果命令执行超时，返回警告信息让模型知晓
+	// If the command timed out, return a warning so the model knows.
 	if timeoutCtx.Err() == context.DeadlineExceeded {
-		return outputStr + "\n[警告: 命令执行超时，已被系统强制终止。如果是启动常驻服务，请尝试将其转入后台。]", nil
+		return outputStr + "\n[warning: command timed out and was killed]", nil
 	}
 
-	// 【驾驭底线 3】：错误原样回传 (Self-Correction 自愈机制)
-	// 当 bash 报错时（err != nil），我们绝对不能返回 Go 的 error 阻断程序！
-	// 我们必须把 err 和 outputStr 拼接成字符串返回，利用大模型的自纠错能力自己分析报错！
+	// Self-correction mechanism: never return a Go error for bash failures.
+	// Instead, pass the combined error + output back to the model so it can self-correct.
 	if err != nil {
-		return fmt.Sprintf("执行报错: %v\n输出:\n%s", err, outputStr), nil
+		return fmt.Sprintf("execution error: %v\noutput:\n%s", err, outputStr), nil
 	}
 
-	// 如果没有终端输出（比如仅仅执行了 mkdir），给模型一个明确的执行成功的反馈
+	// If there is no output (e.g. mkdir), give the model an explicit success signal.
 	if outputStr == "" {
-		return "命令执行成功，无终端输出。", nil
+		return "command finished with no output.", nil
 	}
 
 	return TruncateForLLM(outputStr, 8000), nil

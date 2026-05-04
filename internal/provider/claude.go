@@ -11,6 +11,7 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 )
 
+// ClaudeProvider is an LLMProvider backed by the Anthropic API.
 type ClaudeProvider struct {
 	client    anthropic.Client
 	model     string
@@ -19,8 +20,8 @@ type ClaudeProvider struct {
 	MaxTokens int64
 }
 
-// NewZhipuClaudeProvider constructs a ClaudeProvider backed by the Anthropic API.
-func NewZhipuClaudeProvider(model string) (*ClaudeProvider, error) {
+// NewClaudeProvider constructs a ClaudeProvider backed by the Anthropic API.
+func NewClaudeProvider(model string) (*ClaudeProvider, error) {
 	cfg, err := loadProviderConfig()
 	if err != nil {
 		return nil, err
@@ -38,10 +39,66 @@ func NewZhipuClaudeProvider(model string) (*ClaudeProvider, error) {
 
 // Generate sends messages to the Anthropic API and returns the next assistant message.
 func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
+	anthropicMsgs, systemPrompt, err := translateMessagesToAnthropic(msgs)
+	if err != nil {
+		return nil, err
+	}
+
+	anthropicTools, err := translateToolsToAnthropic(availableTools)
+	if err != nil {
+		return nil, err
+	}
+
+	maxTokens := p.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 4096
+	}
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(p.model),
+		MaxTokens: maxTokens,
+		Messages:  anthropicMsgs,
+	}
+
+	if systemPrompt != "" {
+		params.System = []anthropic.TextBlockParam{{Text: systemPrompt}}
+	}
+	if len(anthropicTools) > 0 {
+		params.Tools = anthropicTools
+	}
+
+	resp, err := p.client.Messages.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("claude API request failed: %w", err)
+	}
+
+	resultMsg := &schema.Message{Role: schema.RoleAssistant}
+	for _, block := range resp.Content {
+		switch block.Type {
+		case "text":
+			resultMsg.Content += block.Text
+		case "tool_use":
+			argsBytes, err := json.Marshal(block.Input)
+			if err != nil {
+				return nil, fmt.Errorf("encode tool call %s input: %w", block.Name, err)
+			}
+			resultMsg.ToolCalls = append(resultMsg.ToolCalls, schema.ToolCall{
+				ID:        block.ID,
+				Name:      block.Name,
+				Arguments: argsBytes,
+			})
+		}
+	}
+
+	return resultMsg, nil
+}
+
+// translateMessagesToAnthropic converts the provider-neutral message slice into
+// Anthropic MessageParams. It also extracts and returns the system prompt, since
+// Anthropic handles it as a top-level field rather than a message role.
+func translateMessagesToAnthropic(msgs []schema.Message) ([]anthropic.MessageParam, string, error) {
 	var anthropicMsgs []anthropic.MessageParam
 	var systemPrompt string
 
-	// 1. 消息翻译
 	for _, msg := range msgs {
 		switch msg.Role {
 		case schema.RoleSystem:
@@ -59,12 +116,10 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 			if msg.Content != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
 			}
-
-			// 将历史工具调用转回 Claude 特有的 ToolUseBlockParam
 			for _, tc := range msg.ToolCalls {
 				var inputMap map[string]interface{}
 				if err := json.Unmarshal(tc.Arguments, &inputMap); err != nil {
-					return nil, fmt.Errorf("decode tool call %s arguments: %w", tc.Name, err)
+					return nil, "", fmt.Errorf("decode tool call %s arguments: %w", tc.Name, err)
 				}
 				blocks = append(blocks, anthropic.ContentBlockParamUnion{
 					OfToolUse: &anthropic.ToolUseBlockParam{
@@ -83,10 +138,14 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		}
 	}
 
-	// 2. 工具 Schema 翻译
+	return anthropicMsgs, systemPrompt, nil
+}
+
+// translateToolsToAnthropic converts provider-neutral tool definitions into
+// Anthropic ToolUnionParams.
+func translateToolsToAnthropic(defs []schema.ToolDefinition) ([]anthropic.ToolUnionParam, error) {
 	var anthropicTools []anthropic.ToolUnionParam
-	for _, toolDef := range availableTools {
-		// ToolInputSchemaParam 是结构体，需要通过 Properties 字段精准填充
+	for _, toolDef := range defs {
 		var properties map[string]any
 		var required []string
 
@@ -107,56 +166,7 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		}
 		anthropicTools = append(anthropicTools, anthropic.ToolUnionParam{OfTool: &tp})
 	}
-
-	// 3. 构建请求并发送
-	maxTokens := p.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = 4096
-	}
-	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(p.model),
-		MaxTokens: maxTokens,
-		Messages:  anthropicMsgs,
-	}
-
-	if systemPrompt != "" {
-		params.System = []anthropic.TextBlockParam{
-			{Text: systemPrompt},
-		}
-	}
-
-	if len(anthropicTools) > 0 {
-		params.Tools = anthropicTools
-	}
-
-	resp, err := p.client.Messages.New(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("claude API request failed: %w", err)
-	}
-
-	// 4. 反向解析
-	resultMsg := &schema.Message{
-		Role: schema.RoleAssistant,
-	}
-
-	for _, block := range resp.Content {
-		switch block.Type {
-		case "text":
-			resultMsg.Content += block.Text
-		case "tool_use":
-			argsBytes, err := json.Marshal(block.Input)
-			if err != nil {
-				return nil, fmt.Errorf("encode tool call %s input: %w", block.Name, err)
-			}
-			resultMsg.ToolCalls = append(resultMsg.ToolCalls, schema.ToolCall{
-				ID:        block.ID,
-				Name:      block.Name,
-				Arguments: argsBytes,
-			})
-		}
-	}
-
-	return resultMsg, nil
+	return anthropicTools, nil
 }
 
 // ExtractRequiredStrings reads a JSON-Schema "required" value from an

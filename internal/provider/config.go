@@ -26,7 +26,7 @@ type LookupEnvFunc func(string) (string, bool)
 func loadProviderConfig() (Config, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {
-		return Config{}, fmt.Errorf("获取当前工作目录失败: %w", err)
+		return Config{}, fmt.Errorf("get working directory: %w", err)
 	}
 
 	return LoadConfigFromDir(workingDir, os.LookupEnv)
@@ -43,7 +43,7 @@ func LoadConfigFromDir(dir string, lookup LookupEnvFunc) (Config, error) {
 
 	apiKey, ok := firstConfiguredValue(lookup, dotEnvValues, "LLM_API_KEY", "MINIMAX_API_KEY", "ZHIPU_API_KEY")
 	if !ok {
-		return Config{}, fmt.Errorf("请在环境变量或 .env 文件中设置 LLM_API_KEY（兼容 MINIMAX_API_KEY / ZHIPU_API_KEY）")
+		return Config{}, fmt.Errorf("set LLM_API_KEY in environment or .env (compatible: MINIMAX_API_KEY, ZHIPU_API_KEY)")
 	}
 
 	baseURL, ok := firstConfiguredValue(lookup, dotEnvValues, "LLM_BASE_URL")
@@ -75,11 +75,11 @@ func readDotEnvUpward(dir string) (map[string]string, error) {
 		case err == nil && !info.IsDir():
 			values, readErr := godotenv.Read(dotEnvPath)
 			if readErr != nil {
-				return nil, fmt.Errorf("读取 %s 失败: %w", dotEnvPath, readErr)
+				return nil, fmt.Errorf("read %s: %w", dotEnvPath, readErr)
 			}
 			return values, nil
 		case err != nil && !os.IsNotExist(err):
-			return nil, fmt.Errorf("检查 %s 失败: %w", dotEnvPath, err)
+			return nil, fmt.Errorf("stat %s: %w", dotEnvPath, err)
 		}
 
 		parentDir := filepath.Dir(currentDir)

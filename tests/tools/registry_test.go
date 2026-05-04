@@ -10,7 +10,7 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
 
-// fakeTool is a minimal tools.BaseTool used to exercise the registry without
+// fakeTool is a minimal tools.Tool used to exercise the registry without
 // touching the filesystem or shell.
 type fakeTool struct {
 	name        string

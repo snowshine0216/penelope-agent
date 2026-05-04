@@ -1,8 +1,10 @@
-// cmd/claw/main.go
 package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -12,32 +14,69 @@ import (
 )
 
 func main() {
-	workDir, _ := os.Getwd()
+	prompt := flag.String("prompt", "", "user prompt; if empty, read from stdin")
+	think := flag.Bool("think", false, "enable thinking phase before each action")
+	providerName := flag.String("provider", "openai", "provider: openai or claude")
+	model := flag.String("model", "", "model id; defaults to LLM_MODEL env or provider default")
+	maxTurns := flag.Int("max-turns", 25, "max engine turns per run")
+	maxTokens := flag.Int("max-tokens", 4096, "max output tokens (claude only)")
+	workDir := flag.String("workdir", "", "workspace root; defaults to cwd")
+	flag.Parse()
 
-	// 1. 初始化真实的 Provider大脑。
-	// 留空模型名时，会从 .env / 环境变量里的 LLM_API_KEY、LLM_BASE_URL、LLM_MODEL 读取配置。
-	llmProvider, err := provider.NewZhipuOpenAIProvider("")
+	cwd := *workDir
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			log.Fatalf("get cwd: %v", err)
+		}
+	}
+
+	userPrompt := *prompt
+	if userPrompt == "" {
+		stdin, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatalf("read stdin: %v", err)
+		}
+		userPrompt = string(stdin)
+	}
+	if userPrompt == "" {
+		fmt.Fprintln(os.Stderr, "no prompt provided (use --prompt or pipe to stdin)")
+		os.Exit(2)
+	}
+
+	llm, err := newProvider(*providerName, *model, *maxTokens)
 	if err != nil {
 		log.Fatalf("init provider: %v", err)
 	}
 
-	// 2. 注入伪造的工具注册表
 	registry := tools.NewRegistry()
+	registry.Register(tools.NewReadFileTool(cwd))
+	registry.Register(tools.NewWriteFileTool(cwd))
+	registry.Register(tools.NewBashTool(cwd))
 
-	// 4. 将真实的 ReadFile 工具挂载到注册表中
-	registry.Register(tools.NewReadFileTool(workDir))
-	registry.Register(tools.NewWriteFileTool(workDir))
-	registry.Register(tools.NewBashTool(workDir))
+	eng := engine.NewAgentEngine(llm, registry, cwd, *think)
+	eng.MaxTurns = *maxTurns
 
-	// 5. 实例化核心引擎，由于任务简单，我们关闭思考阶段 (EnableThinking = false) 以加快速度
-	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
+	if err := eng.Run(context.Background(), userPrompt); err != nil {
+		log.Fatalf("engine: %v", err)
+	}
+}
 
-	// 6. 下发一个必须通过真实工具才能完成的任务
-	// 发起一个需要连贯物理动作的任务 prompt := ` 请帮我执行以下操作： 1. 用 bash 查看一下我当前电脑的 Go 版本。 2. 帮我写一个简单的 helloworld.go 文件，输出 "Hello, penelope-agent!"。 3. 用 bash 编译并运行这个 go 文件，确认它能正常工作。 `
-	prompt := ` 请帮我执行以下操作： 1. 用 bash 查看一下我当前电脑的 Go 版本。 2. 帮我写一个简单的 helloworld.go 文件，输出 "Hello, penelope-agent!"。 3. 用 bash 编译并运行这个 go 文件，确认它能正常工作。 `
-
-	err = eng.Run(context.Background(), prompt)
-	if err != nil {
-		log.Fatalf("引擎运行崩溃: %v", err)
+func newProvider(name, model string, maxTokens int) (provider.LLMProvider, error) {
+	switch name {
+	case "openai":
+		return provider.NewOpenAIProvider(model)
+	case "claude":
+		p, err := provider.NewClaudeProvider(model)
+		if err != nil {
+			return nil, err
+		}
+		if maxTokens > 0 {
+			p.MaxTokens = int64(maxTokens)
+		}
+		return p, nil
+	default:
+		return nil, fmt.Errorf("unknown provider %q (supported: openai, claude)", name)
 	}
 }

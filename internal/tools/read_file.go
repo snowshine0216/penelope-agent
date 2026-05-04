@@ -12,7 +12,7 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 )
 
-// ReadFileTool 实现了读取本地文件内容的工具
+// ReadFileTool reads files within the workspace.
 type ReadFileTool struct {
 	// 将引擎的 WorkDir 注入给工具，限制它只能在此目录及其子目录下操作
 	workDir string
@@ -30,14 +30,14 @@ func (t *ReadFileTool) Name() string {
 func (t *ReadFileTool) Definition() schema.ToolDefinition {
 	return schema.ToolDefinition{
 		Name:        t.Name(),
-		Description: "读取指定路径的文件内容。请提供相对工作区的路径。",
+		Description: "Read the contents of a file in the workspace. Provide a path relative to the workspace root.",
 		// 遵循 JSON Schema 规范定义参数
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"path": map[string]interface{}{
 					"type":        "string",
-					"description": "要读取的文件路径，如 cmd/claw/main.go",
+					"description": "File path relative to the workspace, e.g. cmd/claw/main.go",
 				},
 				"offset": map[string]interface{}{
 					"type":        "integer",
@@ -64,7 +64,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 	// 1. 延迟解析：将大模型传过来的 JSON 参数解析为强类型结构体
 	var input readFileArgs
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("参数解析失败: %w", err)
+		return "", fmt.Errorf("parse arguments: %w", err)
 	}
 
 	// 2. Resolve and sandbox the path — rejects absolute paths and traversal.
@@ -76,13 +76,13 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 	// 3. 执行物理 IO 操作
 	file, err := os.Open(fullPath)
 	if err != nil {
-		return "", fmt.Errorf("打开文件失败: %w", err)
+		return "", fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
 
 	content, err := io.ReadAll(file)
 	if err != nil {
-		return "", fmt.Errorf("读取文件内容失败: %w", err)
+		return "", fmt.Errorf("read file: %w", err)
 	}
 
 	// 4. Optional line-based pagination; otherwise head+tail truncation.

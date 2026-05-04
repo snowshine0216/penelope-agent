@@ -53,7 +53,7 @@ func TestBashFailingCommandReturnsCombinedErrorAsValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute returned Go error, expected nil so model can read failure: %v", err)
 	}
-	if !strings.Contains(out, "执行报错") {
+	if !strings.Contains(out, "execution error") {
 		t.Fatalf("expected error preamble in output, got: %q", out)
 	}
 }
@@ -65,7 +65,7 @@ func TestBashEmptyOutputGetsExplicitMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(out, "无终端输出") {
+	if !strings.Contains(out, "no output") {
 		t.Fatalf("expected explicit success-with-no-output message, got: %q", out)
 	}
 }
