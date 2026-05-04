@@ -113,6 +113,23 @@ func TestRegistryExecutePropagatesToolError(t *testing.T) {
 	}
 }
 
+func TestRegistryGetAvailableToolsReturnsSortedOrder(t *testing.T) {
+	r := tools.NewRegistry()
+	r.Register(newFake("zeta", "", okExec("z")))
+	r.Register(newFake("alpha", "", okExec("a")))
+	r.Register(newFake("mu", "", okExec("m")))
+
+	defs := r.GetAvailableTools()
+	if len(defs) != 3 {
+		t.Fatalf("len = %d, want 3", len(defs))
+	}
+	for i, want := range []string{"alpha", "mu", "zeta"} {
+		if defs[i].Name != want {
+			t.Errorf("defs[%d] = %q, want %q (sorted)", i, defs[i].Name, want)
+		}
+	}
+}
+
 func TestRegistryExecutePassesArgumentsThrough(t *testing.T) {
 	var seen json.RawMessage
 	r := tools.NewRegistry()

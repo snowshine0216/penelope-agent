@@ -44,13 +44,11 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		case schema.RoleSystem:
 			openaiMsgs = append(openaiMsgs, openai.SystemMessage(msg.Content))
 
+		case schema.RoleTool:
+			// 注意：v3 新版参数顺序是 (content, toolCallID)
+			openaiMsgs = append(openaiMsgs, openai.ToolMessage(msg.Content, msg.ToolCallID))
 		case schema.RoleUser:
-			if msg.ToolCallID != "" {
-				// 注意：v3 新版参数顺序是 (content, toolCallID)
-				openaiMsgs = append(openaiMsgs, openai.ToolMessage(msg.Content, msg.ToolCallID))
-			} else {
-				openaiMsgs = append(openaiMsgs, openai.UserMessage(msg.Content))
-			}
+			openaiMsgs = append(openaiMsgs, openai.UserMessage(msg.Content))
 
 		case schema.RoleAssistant:
 			astParam := openai.ChatCompletionAssistantMessageParam{}

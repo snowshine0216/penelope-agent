@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 )
@@ -59,10 +60,13 @@ func (r *registryImpl) Register(tool BaseTool) {
 }
 
 func (r *registryImpl) GetAvailableTools() []schema.ToolDefinition {
-	var defs []schema.ToolDefinition
+	defs := make([]schema.ToolDefinition, 0, len(r.tools))
 	for _, tool := range r.tools {
 		defs = append(defs, tool.Definition())
 	}
+	sort.Slice(defs, func(i, j int) bool {
+		return defs[i].Name < defs[j].Name
+	})
 	return defs
 }
 

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 
@@ -9,6 +10,9 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
+
+// ErrMaxTurnsExceeded is returned when Run exhausts the MaxTurns budget.
+var ErrMaxTurnsExceeded = errors.New("agent engine exceeded MaxTurns")
 
 // AgentEngine 是微型 OS 的核心驱动
 type AgentEngine struct {
@@ -18,8 +22,13 @@ type AgentEngine struct {
 	// WorkDir (工作区): 借鉴 OpenClaw 的理念，Agent 必须有一个明确的物理边界
 	WorkDir        string
 	EnableThinking bool // 【新增】慢思考模式开关
+
+	// MaxTurns caps the number of model turns per Run. 0 means use the
+	// default (25).
+	MaxTurns int
 }
 
+// NewAgentEngine constructs an AgentEngine with the given provider, registry, and work directory.
 func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
 	return &AgentEngine{
 		provider:       p,
@@ -29,9 +38,17 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 	}
 }
 
+const defaultMaxTurns = 25
+
+// Run starts the agent loop with the given user prompt and returns an error if the context is cancelled or MaxTurns is exceeded.
 func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 	log.Printf("[Engine] 引擎启动，锁定工作区: %s\n", e.WorkDir)
 	log.Printf("[Engine] 慢思考模式 (Thinking Phase): %v\n", e.EnableThinking)
+
+	maxTurns := e.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = defaultMaxTurns
+	}
 
 	contextHistory := []schema.Message{
 		{
@@ -47,7 +64,13 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 	turnCount := 0
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		turnCount++
+		if turnCount > maxTurns {
+			return ErrMaxTurnsExceeded
+		}
 		log.Printf("\n========== [Turn %d] 开始 ==========\n", turnCount)
 
 		// 获取当前挂载的所有工具定义
@@ -102,6 +125,9 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(actionResp.ToolCalls))
 
 		for _, toolCall := range actionResp.ToolCalls {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			log.Printf("  -> 🛠️ 执行工具: %s, 参数: %s\n", toolCall.Name, string(toolCall.Arguments))
 
 			result := e.registry.Execute(ctx, toolCall)
@@ -114,7 +140,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 			// 将工具执行的观察结果追加到 Context，准备进入下一轮
 			observationMsg := schema.Message{
-				Role:       schema.RoleUser,
+				Role:       schema.RoleTool,
 				Content:    result.Output,
 				ToolCallID: toolCall.ID,
 				IsError:    result.IsError,

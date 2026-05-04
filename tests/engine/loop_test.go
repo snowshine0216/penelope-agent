@@ -150,7 +150,7 @@ func TestEnginePropagatesToolResultIntoNextContext(t *testing.T) {
 	secondCallMsgs := provider.receivedMsgs[1]
 	found := false
 	for _, m := range secondCallMsgs {
-		if m.ToolCallID == "abc" && m.Content == "tool-output-marker" {
+		if m.Role == schema.RoleTool && m.ToolCallID == "abc" && m.Content == "tool-output-marker" {
 			found = true
 			break
 		}
@@ -270,7 +270,7 @@ func TestEnginePropagatesToolErrorFlagToNextContext(t *testing.T) {
 	second := provider.receivedMsgs[1]
 	var found *schema.Message
 	for i := range second {
-		if second[i].ToolCallID == "x" {
+		if second[i].Role == schema.RoleTool && second[i].ToolCallID == "x" {
 			found = &second[i]
 			break
 		}
@@ -280,6 +280,71 @@ func TestEnginePropagatesToolErrorFlagToNextContext(t *testing.T) {
 	}
 	if !found.IsError {
 		t.Fatalf("expected IsError=true on failed tool result, got false")
+	}
+}
+
+// loopingProvider returns the same canned response indefinitely.
+type loopingProvider struct {
+	response schema.Message
+	calls    int
+}
+
+func (l *loopingProvider) Generate(_ context.Context, _ []schema.Message, _ []schema.ToolDefinition) (*schema.Message, error) {
+	l.calls++
+	r := l.response
+	return &r, nil
+}
+
+func TestEngineStopsAtMaxTurns(t *testing.T) {
+	tool := &recordingTool{name: "noop", output: "ok"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	provider := &loopingProvider{
+		response: schema.Message{
+			Role: schema.RoleAssistant,
+			ToolCalls: []schema.ToolCall{
+				{ID: "x", Name: "noop", Arguments: json.RawMessage(`{}`)},
+			},
+		},
+	}
+
+	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
+	eng.MaxTurns = 3
+
+	err := eng.Run(context.Background(), "loop forever")
+	if err == nil {
+		t.Fatal("expected MaxTurns error, got nil")
+	}
+	if provider.calls > 4 {
+		t.Fatalf("expected ~3 calls, got %d", provider.calls)
+	}
+}
+
+func TestEngineHonorsContextCancellation(t *testing.T) {
+	tool := &recordingTool{name: "noop", output: "ok"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	provider := &loopingProvider{
+		response: schema.Message{
+			Role: schema.RoleAssistant,
+			ToolCalls: []schema.ToolCall{
+				{ID: "x", Name: "noop", Arguments: json.RawMessage(`{}`)},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before Run starts
+
+	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
+	err := eng.Run(ctx, "go")
+	if err == nil {
+		t.Fatal("expected ctx error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected ctx.Canceled, got %v", err)
 	}
 }
 

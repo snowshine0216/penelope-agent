@@ -7,8 +7,9 @@ type Role string
 
 const (
 	RoleSystem    Role = "system"    // 系统提示词：确立 Agent 的性格与红线
-	RoleUser      Role = "user"      // 用户输入 / 工具执行的返回结果 (Observation)
+	RoleUser      Role = "user"      // 用户输入
 	RoleAssistant Role = "assistant" // 模型的输出：包含推理(Reasoning)或工具调用(ToolCall)
+	RoleTool      Role = "tool"      // tool execution result, correlated by ToolCallID
 )
 
 // Message 代表上下文中传递的单条消息

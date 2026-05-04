@@ -46,16 +46,14 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		switch msg.Role {
 		case schema.RoleSystem:
 			systemPrompt = msg.Content
+		case schema.RoleTool:
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
+				anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, msg.IsError),
+			))
 		case schema.RoleUser:
-			if msg.ToolCallID != "" {
-				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
-					anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, msg.IsError),
-				))
-			} else {
-				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
-					anthropic.NewTextBlock(msg.Content),
-				))
-			}
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
+				anthropic.NewTextBlock(msg.Content),
+			))
 		case schema.RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion
 			if msg.Content != "" {
