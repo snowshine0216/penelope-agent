@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os/exec"
 	"time"
 
@@ -34,6 +35,10 @@ func (t *BashTool) Definition() schema.ToolDefinition {
 					"type":        "string",
 					"description": "要执行的 bash 命令，例如: ls -la 或 go test ./...",
 				},
+				"timeout_s": map[string]interface{}{
+					"type":        "integer",
+					"description": "Optional command timeout in seconds (default 30, max 600)",
+				},
 			},
 			"required": []string{"command"},
 		},
@@ -41,7 +46,8 @@ func (t *BashTool) Definition() schema.ToolDefinition {
 }
 
 type bashArgs struct {
-	Command string `json:"command"`
+	Command  string `json:"command"`
+	TimeoutS int    `json:"timeout_s,omitempty"`
 }
 
 func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
@@ -50,9 +56,18 @@ func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 		return "", fmt.Errorf("参数解析失败: %w", err)
 	}
 
-	// 【驾驭底线 1】：Time Budgeting (时间预算与超时控制)
-	// 给予 bash 命令一个最大执行时间，防止大模型卡死进程 (比如运行了 top 或持续监听的 Web 服务)
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	const defaultTimeout = 30 * time.Second
+	const maxTimeout = 600 * time.Second
+
+	timeout := defaultTimeout
+	if input.TimeoutS > 0 {
+		timeout = time.Duration(input.TimeoutS) * time.Second
+		if timeout > maxTimeout {
+			timeout = maxTimeout
+		}
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// 在 macOS/Linux 下，我们通过将指令包裹在 `bash -c` 中执行，以支持环境变量、管道和逻辑与(&&)等复杂 Shell 语法。
@@ -62,13 +77,13 @@ func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 	// 确保命令默认在用户指定的 WorkDir 下执行，而不是引擎启动时的绝对路径。
 	cmd.Dir = t.workDir
 
-	// 执行并捕获 CombinedOutput (合并 stdout 和 stderr)
+	log.Printf("[bash] dir=%s cmd=%s", t.workDir, input.Command)
 	out, err := cmd.CombinedOutput()
 	outputStr := string(out)
 
 	// 如果命令执行超时，返回警告信息让模型知晓
 	if timeoutCtx.Err() == context.DeadlineExceeded {
-		return outputStr + "\n[警告: 命令执行超时(30s)，已被系统强制终止。如果是启动常驻服务，请尝试将其转入后台。]", nil
+		return outputStr + "\n[警告: 命令执行超时，已被系统强制终止。如果是启动常驻服务，请尝试将其转入后台。]", nil
 	}
 
 	// 【驾驭底线 3】：错误原样回传 (Self-Correction 自愈机制)
@@ -83,11 +98,5 @@ func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 		return "命令执行成功，无终端输出。", nil
 	}
 
-	// 【驾驭底线 4】：长度截断保护 (防 OOM)
-	const maxLen = 8000
-	if len(outputStr) > maxLen {
-		return fmt.Sprintf("%s\n\n...[终端输出过长，已截断至前 %d 字节]...", outputStr[:maxLen], maxLen), nil
-	}
-
-	return outputStr, nil
+	return TruncateForLLM(outputStr, 8000), nil
 }

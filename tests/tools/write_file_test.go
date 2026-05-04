@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -84,11 +85,7 @@ func TestWriteFileMalformedArgsReturnsError(t *testing.T) {
 	}
 }
 
-// TestWriteFilePathTraversalCurrentlyEscapesWorkDir mirrors the read_file
-// known-bug test. write_file joins workDir + path without normalization,
-// so the model can write outside the workspace. Flip the assertions when
-// the bug is fixed.
-func TestWriteFilePathTraversalCurrentlyEscapesWorkDir(t *testing.T) {
+func TestWriteFileRejectsPathTraversal(t *testing.T) {
 	root := t.TempDir()
 	work := filepath.Join(root, "work")
 	if err := os.MkdirAll(work, 0o755); err != nil {
@@ -96,16 +93,15 @@ func TestWriteFilePathTraversalCurrentlyEscapesWorkDir(t *testing.T) {
 	}
 
 	tool := tools.NewWriteFileTool(work)
-	if _, err := tool.Execute(context.Background(), writeArgs(t, "../escaped.txt", "leak")); err != nil {
-		t.Fatalf("execute (current behavior should NOT error): %v", err)
+	_, err := tool.Execute(context.Background(), writeArgs(t, "../escaped.txt", "leak"))
+	if err == nil {
+		t.Fatal("expected ErrPathEscape, got nil")
+	}
+	if !errors.Is(err, tools.ErrPathEscape) {
+		t.Fatalf("expected ErrPathEscape, got %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(root, "escaped.txt"))
-	if err != nil {
-		t.Fatalf("expected file to land outside workDir under current buggy behavior: %v", err)
+	if _, statErr := os.Stat(filepath.Join(root, "escaped.txt")); !os.IsNotExist(statErr) {
+		t.Fatal("escaped file should not have been written")
 	}
-	if string(got) != "leak" {
-		t.Fatalf("escaped file content = %q, want leak", got)
-	}
-	t.Log("KNOWN BUG: write_file allows path traversal outside workDir; fix by resolving abs path and asserting HasPrefix(absWorkDir).")
 }

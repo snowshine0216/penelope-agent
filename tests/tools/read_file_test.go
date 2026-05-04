@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,7 +68,7 @@ func TestReadFileTruncatesLongContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(out, "已被系统截断") {
+	if !strings.Contains(out, "elided") {
 		t.Fatalf("expected truncation marker in output")
 	}
 }
@@ -92,11 +93,7 @@ func TestReadFileResolvesRelativeToWorkDir(t *testing.T) {
 	}
 }
 
-// TestReadFilePathTraversalCurrentlyEscapesWorkDir documents a known bug:
-// the tool joins workDir + path without normalizing, so "../" segments
-// escape the workspace. When the bug is fixed (path resolution + prefix
-// check), this test should be flipped to expect an error.
-func TestReadFilePathTraversalCurrentlyEscapesWorkDir(t *testing.T) {
+func TestReadFileRejectsPathTraversal(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(root, "outside.txt")
 	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
@@ -109,12 +106,11 @@ func TestReadFilePathTraversalCurrentlyEscapesWorkDir(t *testing.T) {
 	}
 
 	tool := tools.NewReadFileTool(work)
-	out, err := tool.Execute(context.Background(), readArgs(t, "../outside.txt"))
-	if err != nil {
-		t.Fatalf("execute (current behavior should NOT error): %v", err)
+	_, err := tool.Execute(context.Background(), readArgs(t, "../outside.txt"))
+	if err == nil {
+		t.Fatal("expected ErrPathEscape, got nil")
 	}
-	if out != "secret" {
-		t.Fatalf("expected current-behavior escape to read 'secret', got %q", out)
+	if !errors.Is(err, tools.ErrPathEscape) {
+		t.Fatalf("expected ErrPathEscape, got %v", err)
 	}
-	t.Log("KNOWN BUG: read_file allows path traversal outside workDir; fix by resolving abs path and asserting HasPrefix(absWorkDir).")
 }

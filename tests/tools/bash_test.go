@@ -78,7 +78,7 @@ func TestBashLongOutputIsTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(out, "已截断") {
+	if !strings.Contains(out, "elided") {
 		t.Fatalf("expected truncation marker in output, got tail: %q", tail(out, 200))
 	}
 	if len(out) < 8000 {

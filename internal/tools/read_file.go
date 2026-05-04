@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 )
@@ -39,6 +39,14 @@ func (t *ReadFileTool) Definition() schema.ToolDefinition {
 					"type":        "string",
 					"description": "要读取的文件路径，如 cmd/claw/main.go",
 				},
+				"offset": map[string]interface{}{
+					"type":        "integer",
+					"description": "Optional 1-indexed line number to start reading from",
+				},
+				"limit": map[string]interface{}{
+					"type":        "integer",
+					"description": "Optional max number of lines to return",
+				},
 			},
 			"required": []string{"path"},
 		},
@@ -47,19 +55,23 @@ func (t *ReadFileTool) Definition() schema.ToolDefinition {
 
 // readFileArgs 内部定义用于反序列化的结构体
 type readFileArgs struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Offset int    `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	// 1. 延迟解析：将大模型传过来的 JSON 参数解析为强类型结构体
 	var input readFileArgs
 	if err := json.Unmarshal(args, &input); err != nil {
-		// 返回 error 会被 Registry 捕获并传给大模型，模型会知道自己 JSON 格式写错了
 		return "", fmt.Errorf("参数解析失败: %w", err)
 	}
 
-	// 2. 拼接绝对路径 (注意：生产环境中需要做路径穿越检测防范，防止 ../../etc/passwd)
-	fullPath := filepath.Join(t.workDir, input.Path)
+	// 2. Resolve and sandbox the path — rejects absolute paths and traversal.
+	fullPath, err := ResolveInWorkDir(t.workDir, input.Path)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
 
 	// 3. 执行物理 IO 操作
 	file, err := os.Open(fullPath)
@@ -73,14 +85,27 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 		return "", fmt.Errorf("读取文件内容失败: %w", err)
 	}
 
-	// 4. 【核心防线】长度截断保护
-	// 为了防止大模型读取几百 MB 的日志文件导致 Context 瞬间爆炸 (OOM)，
-	// 我们在工具内部直接进行物理截断。
-	const maxLen = 8000
-	if len(content) > maxLen {
-		truncatedMsg := fmt.Sprintf("%s\n\n...[由于内容过长，已被系统截断至前 %d 字节]...", string(content[:maxLen]), maxLen)
-		return truncatedMsg, nil
+	// 4. Optional line-based pagination; otherwise head+tail truncation.
+	text := string(content)
+	if input.Offset > 0 || input.Limit > 0 {
+		text = sliceLines(text, input.Offset, input.Limit)
+		return text, nil
 	}
+	return TruncateForLLM(text, 8000), nil
+}
 
-	return string(content), nil
+func sliceLines(s string, offset, limit int) string {
+	lines := strings.Split(s, "\n")
+	start := offset - 1
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(lines) {
+		return ""
+	}
+	end := len(lines)
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
+	return strings.Join(lines[start:end], "\n")
 }
