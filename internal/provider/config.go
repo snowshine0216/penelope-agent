@@ -12,32 +12,38 @@ import (
 const defaultProviderBaseURL = "https://api.minimaxi.com/v1/"
 const defaultProviderModel = "glm-4.5-air"
 
-type providerConfig struct {
-	apiKey  string
-	baseURL string
-	model   string
+// Config carries the resolved provider settings (api key, base URL, model).
+type Config struct {
+	APIKey  string
+	BaseURL string
+	Model   string
 }
 
-type lookupEnvFunc func(string) (string, bool)
+// LookupEnvFunc matches os.LookupEnv. Injected so callers (and tests) can
+// substitute a deterministic environment.
+type LookupEnvFunc func(string) (string, bool)
 
-func loadProviderConfig() (providerConfig, error) {
+func loadProviderConfig() (Config, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {
-		return providerConfig{}, fmt.Errorf("获取当前工作目录失败: %w", err)
+		return Config{}, fmt.Errorf("获取当前工作目录失败: %w", err)
 	}
 
-	return loadProviderConfigFromDir(workingDir, os.LookupEnv)
+	return LoadConfigFromDir(workingDir, os.LookupEnv)
 }
 
-func loadProviderConfigFromDir(dir string, lookup lookupEnvFunc) (providerConfig, error) {
+// LoadConfigFromDir reads provider settings from environment variables and
+// the nearest .env walking up from dir. Environment values win over .env
+// values; LLM_* keys win over MINIMAX_* / ZHIPU_* legacy keys.
+func LoadConfigFromDir(dir string, lookup LookupEnvFunc) (Config, error) {
 	dotEnvValues, err := readDotEnvUpward(dir)
 	if err != nil {
-		return providerConfig{}, err
+		return Config{}, err
 	}
 
 	apiKey, ok := firstConfiguredValue(lookup, dotEnvValues, "LLM_API_KEY", "MINIMAX_API_KEY", "ZHIPU_API_KEY")
 	if !ok {
-		return providerConfig{}, fmt.Errorf("请在环境变量或 .env 文件中设置 LLM_API_KEY（兼容 MINIMAX_API_KEY / ZHIPU_API_KEY）")
+		return Config{}, fmt.Errorf("请在环境变量或 .env 文件中设置 LLM_API_KEY（兼容 MINIMAX_API_KEY / ZHIPU_API_KEY）")
 	}
 
 	baseURL, ok := firstConfiguredValue(lookup, dotEnvValues, "LLM_BASE_URL")
@@ -50,8 +56,15 @@ func loadProviderConfigFromDir(dir string, lookup lookupEnvFunc) (providerConfig
 		model = defaultProviderModel
 	}
 
-	return providerConfig{apiKey: apiKey, baseURL: baseURL, model: model}, nil
+	return Config{APIKey: apiKey, BaseURL: baseURL, Model: model}, nil
 }
+
+// DefaultBaseURL exposes the fallback base URL used when no override is set.
+// Test-only helper; production code reads it through LoadConfigFromDir.
+func DefaultBaseURL() string { return defaultProviderBaseURL }
+
+// DefaultModel exposes the fallback model identifier.
+func DefaultModel() string { return defaultProviderModel }
 
 func readDotEnvUpward(dir string) (map[string]string, error) {
 	currentDir := dir
@@ -77,7 +90,7 @@ func readDotEnvUpward(dir string) (map[string]string, error) {
 	}
 }
 
-func firstConfiguredValue(lookup lookupEnvFunc, dotEnvValues map[string]string, keys ...string) (string, bool) {
+func firstConfiguredValue(lookup LookupEnvFunc, dotEnvValues map[string]string, keys ...string) (string, bool) {
 	for _, key := range keys {
 		if value, ok := lookup(key); ok {
 			trimmedValue := strings.TrimSpace(value)

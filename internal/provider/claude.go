@@ -24,11 +24,11 @@ func NewZhipuClaudeProvider(model string) *ClaudeProvider {
 	}
 
 	if strings.TrimSpace(model) == "" {
-		model = cfg.model
+		model = cfg.Model
 	}
 
 	return &ClaudeProvider{
-		client: anthropic.NewClient(option.WithAPIKey(cfg.apiKey), option.WithBaseURL(cfg.baseURL)),
+		client: anthropic.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL)),
 		model:  model,
 	}
 }

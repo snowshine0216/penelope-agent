@@ -26,11 +26,11 @@ func NewZhipuOpenAIProvider(model string) *OpenAIProvider {
 	}
 
 	if strings.TrimSpace(model) == "" {
-		model = cfg.model
+		model = cfg.Model
 	}
 
 	return &OpenAIProvider{
-		client: openai.NewClient(option.WithAPIKey(cfg.apiKey), option.WithBaseURL(cfg.baseURL)),
+		client: openai.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL)),
 		model:  model,
 	}
 }
