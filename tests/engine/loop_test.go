@@ -242,6 +242,47 @@ func TestEngineSurfacesProviderError(t *testing.T) {
 	}
 }
 
+func TestEnginePropagatesToolErrorFlagToNextContext(t *testing.T) {
+	tool := &recordingTool{name: "boom", err: errors.New("kaboom")}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	provider := &fakeProvider{
+		responses: []schema.Message{
+			{
+				Role: schema.RoleAssistant,
+				ToolCalls: []schema.ToolCall{
+					{ID: "x", Name: "boom", Arguments: json.RawMessage(`{}`)},
+				},
+			},
+			{Role: schema.RoleAssistant, Content: "saw the error"},
+		},
+	}
+
+	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
+	if err := eng.Run(context.Background(), "go"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(provider.receivedMsgs) < 2 {
+		t.Fatalf("expected provider called twice, got %d", len(provider.receivedMsgs))
+	}
+	second := provider.receivedMsgs[1]
+	var found *schema.Message
+	for i := range second {
+		if second[i].ToolCallID == "x" {
+			found = &second[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("tool result message not found in second turn context")
+	}
+	if !found.IsError {
+		t.Fatalf("expected IsError=true on failed tool result, got false")
+	}
+}
+
 func TestEngineExecutesAllParallelToolCalls(t *testing.T) {
 	a := &recordingTool{name: "a", output: "from-a"}
 	b := &recordingTool{name: "b", output: "from-b"}

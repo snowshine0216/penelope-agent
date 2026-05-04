@@ -1,4 +1,3 @@
-// internal/provider/claude.go
 package provider
 
 import (
@@ -13,14 +12,18 @@ import (
 )
 
 type ClaudeProvider struct {
-	client anthropic.Client
-	model  string
+	client    anthropic.Client
+	model     string
+	// MaxTokens caps the number of tokens the model may generate per request.
+	// A zero value causes Generate to apply the built-in default of 4096.
+	MaxTokens int64
 }
 
-func NewZhipuClaudeProvider(model string) *ClaudeProvider {
+// NewZhipuClaudeProvider constructs a ClaudeProvider backed by the Anthropic API.
+func NewZhipuClaudeProvider(model string) (*ClaudeProvider, error) {
 	cfg, err := loadProviderConfig()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	if strings.TrimSpace(model) == "" {
@@ -30,9 +33,10 @@ func NewZhipuClaudeProvider(model string) *ClaudeProvider {
 	return &ClaudeProvider{
 		client: anthropic.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL)),
 		model:  model,
-	}
+	}, nil
 }
 
+// Generate sends messages to the Anthropic API and returns the next assistant message.
 func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
 	var anthropicMsgs []anthropic.MessageParam
 	var systemPrompt string
@@ -45,7 +49,7 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		case schema.RoleUser:
 			if msg.ToolCallID != "" {
 				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
-					anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, false),
+					anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, msg.IsError),
 				))
 			} else {
 				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
@@ -61,7 +65,9 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 			// 将历史工具调用转回 Claude 特有的 ToolUseBlockParam
 			for _, tc := range msg.ToolCalls {
 				var inputMap map[string]interface{}
-				_ = json.Unmarshal(tc.Arguments, &inputMap)
+				if err := json.Unmarshal(tc.Arguments, &inputMap); err != nil {
+					return nil, fmt.Errorf("decode tool call %s arguments: %w", tc.Name, err)
+				}
 				blocks = append(blocks, anthropic.ContentBlockParamUnion{
 					OfToolUse: &anthropic.ToolUseBlockParam{
 						ID:    tc.ID,
@@ -70,9 +76,12 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 					},
 				})
 			}
-			if len(blocks) > 0 {
-				anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(blocks...))
+			if len(blocks) == 0 {
+				// Anthropic requires at least one content block per assistant message.
+				// Insert an empty text block to keep history contiguous.
+				blocks = append(blocks, anthropic.NewTextBlock(""))
 			}
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(blocks...))
 		}
 	}
 
@@ -87,9 +96,7 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 			if p, ok := m["properties"].(map[string]interface{}); ok {
 				properties = p
 			}
-			if r, ok := m["required"].([]string); ok {
-				required = r
-			}
+			required = ExtractRequiredStrings(m["required"])
 		}
 
 		tp := anthropic.ToolParam{
@@ -104,9 +111,13 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 	}
 
 	// 3. 构建请求并发送
+	maxTokens := p.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 4096
+	}
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(p.model),
-		MaxTokens: 4096,
+		MaxTokens: maxTokens,
 		Messages:  anthropicMsgs,
 	}
 
@@ -122,7 +133,7 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 
 	resp, err := p.client.Messages.New(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("Claude/Zhipu API 请求失败: %w", err)
+		return nil, fmt.Errorf("claude API request failed: %w", err)
 	}
 
 	// 4. 反向解析
@@ -135,7 +146,10 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		case "text":
 			resultMsg.Content += block.Text
 		case "tool_use":
-			argsBytes, _ := json.Marshal(block.Input)
+			argsBytes, err := json.Marshal(block.Input)
+			if err != nil {
+				return nil, fmt.Errorf("encode tool call %s input: %w", block.Name, err)
+			}
 			resultMsg.ToolCalls = append(resultMsg.ToolCalls, schema.ToolCall{
 				ID:        block.ID,
 				Name:      block.Name,
@@ -145,4 +159,24 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 	}
 
 	return resultMsg, nil
+}
+
+// ExtractRequiredStrings reads a JSON-Schema "required" value from an
+// untyped slot. Tools build the schema with a []string literal, but any
+// schema that round-trips through JSON arrives as []interface{}. Handle
+// both shapes.
+func ExtractRequiredStrings(v interface{}) []string {
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []interface{}:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				out = append(out, str)
+			}
+		}
+		return out
+	}
+	return nil
 }

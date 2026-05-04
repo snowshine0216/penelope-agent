@@ -1,4 +1,3 @@
-// internal/provider/openai.go
 package provider
 
 import (
@@ -18,11 +17,11 @@ type OpenAIProvider struct {
 	model  string
 }
 
-// NewZhipuOpenAIProvider 构造函数：基于 OpenAI V3 SDK，指向智谱底座
-func NewZhipuOpenAIProvider(model string) *OpenAIProvider {
+// NewZhipuOpenAIProvider constructs an OpenAIProvider backed by an OpenAI-compatible API endpoint.
+func NewZhipuOpenAIProvider(model string) (*OpenAIProvider, error) {
 	cfg, err := loadProviderConfig()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	if strings.TrimSpace(model) == "" {
@@ -32,9 +31,10 @@ func NewZhipuOpenAIProvider(model string) *OpenAIProvider {
 	return &OpenAIProvider{
 		client: openai.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL)),
 		model:  model,
-	}
+	}, nil
 }
 
+// Generate sends messages to the OpenAI-compatible API and returns the next assistant message.
 func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
 	var openaiMsgs []openai.ChatCompletionMessageParamUnion
 
@@ -95,9 +95,13 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		if m, ok := toolDef.InputSchema.(map[string]interface{}); ok {
 			params = shared.FunctionParameters(m)
 		} else {
-			// fallback：JSON 往返序列化
-			b, _ := json.Marshal(toolDef.InputSchema)
-			_ = json.Unmarshal(b, &params)
+			b, err := json.Marshal(toolDef.InputSchema)
+			if err != nil {
+				return nil, fmt.Errorf("encode tool schema for %s: %w", toolDef.Name, err)
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				return nil, fmt.Errorf("decode tool schema for %s: %w", toolDef.Name, err)
+			}
 		}
 
 		openaiTools = append(openaiTools, openai.ChatCompletionFunctionTool(
@@ -122,10 +126,10 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
 
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("OpenAI/Zhipu API 请求失败: %w", err)
+		return nil, fmt.Errorf("openai API request failed: %w", err)
 	}
 	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("API 返回了空的 Choices")
+		return nil, fmt.Errorf("openai API returned empty choices")
 	}
 
 	// 4. 将 API Response 反向翻译为内部 schema.Message
@@ -136,12 +140,15 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
 	}
 
 	for _, tc := range choice.ToolCalls {
-		if tc.Type == "function" {
+		switch tc.Type {
+		case "function":
 			resultMsg.ToolCalls = append(resultMsg.ToolCalls, schema.ToolCall{
 				ID:        tc.ID,
 				Name:      tc.Function.Name,
 				Arguments: []byte(tc.Function.Arguments), // 提取 JSON 字符串字节
 			})
+		default:
+			return nil, fmt.Errorf("unsupported tool call type from OpenAI: %q", tc.Type)
 		}
 	}
 

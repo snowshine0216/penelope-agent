@@ -29,8 +29,6 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 	}
 }
 
-// internal/engine/loop.go (续)
-
 func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 	log.Printf("[Engine] 引擎启动，锁定工作区: %s\n", e.WorkDir)
 	log.Printf("[Engine] 慢思考模式 (Thinking Phase): %v\n", e.EnableThinking)
@@ -119,6 +117,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 				Role:       schema.RoleUser,
 				Content:    result.Output,
 				ToolCallID: toolCall.ID,
+				IsError:    result.IsError,
 			}
 			contextHistory = append(contextHistory, observationMsg)
 		}

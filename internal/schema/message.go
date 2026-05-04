@@ -21,6 +21,11 @@ type Message struct {
 
 	// 如果这是对某个工具调用的响应，此字段必须填写，以告知模型上下文的关联性
 	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	// IsError marks a tool result as a failure. Surfaced to providers that
+	// support a structured error flag (Anthropic). Ignored by providers that
+	// don't (OpenAI relies on text content).
+	IsError bool `json:"is_error,omitempty"`
 }
 
 // ToolCall 代表模型请求调用某个具体的工具
