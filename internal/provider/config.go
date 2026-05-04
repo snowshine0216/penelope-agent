@@ -9,7 +9,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const defaultProviderBaseURL = "https://api.minimaxi.com/v1/"
+const defaultProviderBaseURL = "https://open.bigmodel.cn/api/paas/v4/"
 const defaultProviderModel = "glm-4.5-air"
 
 // Config carries the resolved provider settings (api key, base URL, model).
