@@ -32,8 +32,9 @@ func NewClaudeProvider(model string) (*ClaudeProvider, error) {
 	}
 
 	return &ClaudeProvider{
-		client: anthropic.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL)),
-		model:  model,
+		client:    anthropic.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL)),
+		model:     model,
+		MaxTokens: 4096,
 	}, nil
 }
 

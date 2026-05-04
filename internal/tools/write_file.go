@@ -73,5 +73,5 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (stri
 		return "", fmt.Errorf("write file: %w", err)
 	}
 
-	return input.Path, nil
+	return "wrote " + input.Path, nil
 }

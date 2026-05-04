@@ -33,7 +33,7 @@ func main() {
 	}
 
 	userPrompt := *prompt
-	if userPrompt == "" {
+	if userPrompt == "" && !isTerminal(os.Stdin) {
 		stdin, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			log.Fatalf("read stdin: %v", err)
@@ -61,6 +61,14 @@ func main() {
 	if err := eng.Run(context.Background(), userPrompt); err != nil {
 		log.Fatalf("engine: %v", err)
 	}
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
 func newProvider(name, model string, maxTokens int) (provider.LLMProvider, error) {

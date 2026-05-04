@@ -44,6 +44,38 @@ func TestResolveRejectsAbsolutePath(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsSymlinkEscape(t *testing.T) {
+	if os.Getenv("GOOS") == "windows" {
+		t.Skip("symlinks require elevated privileges on Windows")
+	}
+
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Create a file outside the workspace.
+	outside := filepath.Join(root, "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("setup outside file: %v", err)
+	}
+
+	// Create a symlink inside the workspace that points outside.
+	link := filepath.Join(work, "escape.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	_, err := tools.ResolveInWorkDir(work, "escape.txt")
+	if err == nil {
+		t.Fatal("expected ErrPathEscape for symlink pointing outside workdir, got nil")
+	}
+	if !errors.Is(err, tools.ErrPathEscape) {
+		t.Fatalf("expected ErrPathEscape, got %v", err)
+	}
+}
+
 func TestResolveAllowsCleanInternalPath(t *testing.T) {
 	dir := t.TempDir()
 	got, err := tools.ResolveInWorkDir(dir, "a/./b/../c.txt")

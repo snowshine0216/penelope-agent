@@ -86,6 +86,23 @@ func TestBashLongOutputIsTruncated(t *testing.T) {
 	}
 }
 
+func TestBashCustomTimeoutKillsSlowCommand(t *testing.T) {
+	tool := tools.NewBashTool(t.TempDir())
+
+	args, err := json.Marshal(map[string]interface{}{"command": "sleep 60", "timeout_s": 1})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	out, execErr := tool.Execute(context.Background(), args)
+	if execErr != nil {
+		t.Fatalf("execute returned Go error: %v", execErr)
+	}
+	if !strings.Contains(out, "timed out") {
+		t.Fatalf("expected timeout warning in output, got: %q", out)
+	}
+}
+
 func TestBashRejectsMalformedArgs(t *testing.T) {
 	tool := tools.NewBashTool(t.TempDir())
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,40 @@ func TestReadFileResolvesRelativeToWorkDir(t *testing.T) {
 	}
 	if out != "nested" {
 		t.Fatalf("output = %q, want nested", out)
+	}
+}
+
+func TestReadFilePaginationReturnsSubset(t *testing.T) {
+	dir := t.TempDir()
+	var lines []string
+	for i := 1; i <= 20; i++ {
+		lines = append(lines, fmt.Sprintf("line%d", i))
+	}
+	content := strings.Join(lines, "\n")
+	if err := os.WriteFile(filepath.Join(dir, "lines.txt"), []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	args, err := json.Marshal(map[string]interface{}{"path": "lines.txt", "offset": 5, "limit": 3})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	tool := tools.NewReadFileTool(dir)
+	out, execErr := tool.Execute(context.Background(), args)
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+
+	gotLines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(gotLines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %q", len(gotLines), out)
+	}
+	if gotLines[0] != "line5" {
+		t.Fatalf("first line = %q, want line5", gotLines[0])
+	}
+	if gotLines[2] != "line7" {
+		t.Fatalf("last line = %q, want line7", gotLines[2])
 	}
 }
 
