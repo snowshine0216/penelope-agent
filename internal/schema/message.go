@@ -2,45 +2,51 @@ package schema
 
 import "encoding/json"
 
-// Role 定义消息的角色，这是与大模型沟通的基石
+// Role represents the sender of a message.
 type Role string
 
 const (
-	RoleSystem    Role = "system"    // 系统提示词：确立 Agent 的性格与红线
-	RoleUser      Role = "user"      // 用户输入 / 工具执行的返回结果 (Observation)
-	RoleAssistant Role = "assistant" // 模型的输出：包含推理(Reasoning)或工具调用(ToolCall)
+	RoleSystem    Role = "system"    // system prompt
+	RoleUser      Role = "user"      // user input
+	RoleAssistant Role = "assistant" // model output: text reasoning or tool calls
+	RoleTool      Role = "tool"      // tool execution result, correlated by ToolCallID
 )
 
-// Message 代表上下文中传递的单条消息
+// Message represents a single message in the conversation context.
 type Message struct {
 	Role    Role   `json:"role"`
-	Content string `json:"content"` // 存放纯文本内容
+	Content string `json:"content"`
 
-	// 如果模型决定调用工具，此字段将被填充 (支持并行调用多个工具)
+	// ToolCalls is populated when the model requests one or more tool invocations.
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 
-	// 如果这是对某个工具调用的响应，此字段必须填写，以告知模型上下文的关联性
+	// ToolCallID links a tool result back to the originating tool call.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	// IsError marks a tool result as a failure. Surfaced to providers that
+	// support a structured error flag (Anthropic). Ignored by providers that
+	// don't (OpenAI relies on text content).
+	IsError bool `json:"is_error,omitempty"`
 }
 
-// ToolCall 代表模型请求调用某个具体的工具
+// ToolCall represents a model-requested invocation of a specific tool.
 type ToolCall struct {
-	ID   string `json:"id"`   // 工具调用的唯一 ID
-	Name string `json:"name"` // 想要调用的工具名称 (例如 "bash")
-	// Arguments 存放 JSON 参数。使用 RawMessage 是为了延迟解析，将解析责任交给具体的工具
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Arguments holds raw JSON; parsing is delegated to the concrete tool.
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-// ToolResult 代表工具在本地执行完毕后返回的物理结果
+// ToolResult is the outcome of a local tool execution.
 type ToolResult struct {
 	ToolCallID string `json:"tool_call_id"`
-	Output     string `json:"output"`   // 工具执行的控制台输出或报错堆栈
-	IsError    bool   `json:"is_error"` // 标记是否失败，供后续的驾驭工程进行错误自愈
+	Output     string `json:"output"`
+	IsError    bool   `json:"is_error"`
 }
 
-// ToolDefinition 描述了一个大模型可以调用的工具元信息 (供模型理解工具有什么用)
+// ToolDefinition describes a tool the model can invoke.
 type ToolDefinition struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
-	InputSchema interface{} `json:"input_schema"` // 对应 JSON Schema
+	InputSchema interface{} `json:"input_schema"`
 }
