@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,8 @@ func LoadConfigFromDir(dir string, lookup LookupEnvFunc) (Config, error) {
 	baseURL, ok := firstConfiguredValue(lookup, dotEnvValues, "LLM_BASE_URL")
 	if !ok {
 		baseURL = defaultProviderBaseURL
+	} else if err := validateBaseURL(baseURL); err != nil {
+		return Config{}, fmt.Errorf("invalid LLM_BASE_URL: %w", err)
 	}
 
 	model, ok := firstConfiguredValue(lookup, dotEnvValues, "LLM_MODEL")
@@ -66,9 +69,13 @@ func DefaultBaseURL() string { return defaultProviderBaseURL }
 // DefaultModel exposes the fallback model identifier.
 func DefaultModel() string { return defaultProviderModel }
 
+// maxDotEnvDepth limits upward directory traversal when searching for .env
+// files to prevent loading credentials from arbitrary ancestor directories.
+const maxDotEnvDepth = 4
+
 func readDotEnvUpward(dir string) (map[string]string, error) {
 	currentDir := dir
-	for {
+	for depth := 0; depth < maxDotEnvDepth; depth++ {
 		dotEnvPath := filepath.Join(currentDir, ".env")
 		info, err := os.Stat(dotEnvPath)
 		switch {
@@ -84,10 +91,27 @@ func readDotEnvUpward(dir string) (map[string]string, error) {
 
 		parentDir := filepath.Dir(currentDir)
 		if parentDir == currentDir {
-			return map[string]string{}, nil
+			break
 		}
 		currentDir = parentDir
 	}
+	return map[string]string{}, nil
+}
+
+// validateBaseURL rejects non-HTTPS base URLs to prevent accidental credential
+// exposure over plaintext connections or redirection to attacker-controlled endpoints.
+// Localhost addresses are allowed with either scheme for development use.
+func validateBaseURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("malformed URL: %w", err)
+	}
+	host := u.Hostname()
+	isLocal := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if !isLocal && u.Scheme != "https" {
+		return fmt.Errorf("must use https (got %q); set LLM_BASE_URL to an https:// endpoint", u.Scheme)
+	}
+	return nil
 }
 
 func firstConfiguredValue(lookup LookupEnvFunc, dotEnvValues map[string]string, keys ...string) (string, bool) {

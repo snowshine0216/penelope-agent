@@ -25,11 +25,10 @@ func ResolveInWorkDir(workDir, relPath string) (string, error) {
 		return "", fmt.Errorf("resolve workdir: %w", err)
 	}
 
+	// filepath.Join already returns a clean path when absWorkDir is absolute,
+	// so filepath.Clean is sufficient — no syscall needed.
 	joined := filepath.Join(absWorkDir, relPath)
-	abs, err := filepath.Abs(joined)
-	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
-	}
+	abs := filepath.Clean(joined)
 
 	sep := string(os.PathSeparator)
 	if abs != absWorkDir && !strings.HasPrefix(abs, absWorkDir+sep) {

@@ -60,6 +60,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		},
 	}
 
+	availableTools := e.registry.GetAvailableTools()
 	turnCount := 0
 
 	for {
@@ -71,9 +72,6 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 			return ErrMaxTurnsExceeded
 		}
 		log.Printf("[engine] turn %d", turnCount)
-
-		// 获取当前挂载的所有工具定义
-		availableTools := e.registry.GetAvailableTools()
 
 		// ====================================================================
 		// Phase 1: 慢思考阶段 (Thinking) - 剥夺工具，强制规划

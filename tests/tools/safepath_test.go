@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -45,7 +46,7 @@ func TestResolveRejectsAbsolutePath(t *testing.T) {
 }
 
 func TestResolveRejectsSymlinkEscape(t *testing.T) {
-	if os.Getenv("GOOS") == "windows" {
+	if runtime.GOOS == "windows" {
 		t.Skip("symlinks require elevated privileges on Windows")
 	}
 

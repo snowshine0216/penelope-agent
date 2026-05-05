@@ -96,6 +96,7 @@ func TestRoleConstantsMatchWireFormat(t *testing.T) {
 		schema.RoleSystem:    "system",
 		schema.RoleUser:      "user",
 		schema.RoleAssistant: "assistant",
+		schema.RoleTool:      "tool",
 	}
 	for role, want := range cases {
 		if string(role) != want {

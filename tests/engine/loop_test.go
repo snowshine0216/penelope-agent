@@ -316,6 +316,9 @@ func TestEngineStopsAtMaxTurns(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected MaxTurns error, got nil")
 	}
+	if !errors.Is(err, engine.ErrMaxTurnsExceeded) {
+		t.Fatalf("expected ErrMaxTurnsExceeded, got %v", err)
+	}
 	if provider.calls > 4 {
 		t.Fatalf("expected ~3 calls, got %d", provider.calls)
 	}
