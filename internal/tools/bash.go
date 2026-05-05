@@ -1,4 +1,3 @@
-// internal/tools/bash.go
 package tools
 
 import (
@@ -14,7 +13,7 @@ import (
 
 // BashTool executes shell commands in the workspace.
 type BashTool struct {
-	workDir string // 工作区约束
+	workDir string
 }
 
 func NewBashTool(workDir string) *BashTool {
@@ -62,20 +61,18 @@ func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 
 	timeout := defaultTimeout
 	if input.TimeoutS > 0 {
-		timeout = time.Duration(input.TimeoutS) * time.Second
-		if timeout > maxTimeout {
-			timeout = maxTimeout
+		// Cap before Duration multiplication to prevent int64 overflow for large inputs.
+		const maxTimeoutSeconds = 600
+		if input.TimeoutS > maxTimeoutSeconds {
+			input.TimeoutS = maxTimeoutSeconds
 		}
+		timeout = time.Duration(input.TimeoutS) * time.Second
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// 在 macOS/Linux 下，我们通过将指令包裹在 `bash -c` 中执行，以支持环境变量、管道和逻辑与(&&)等复杂 Shell 语法。
 	cmd := exec.CommandContext(timeoutCtx, "bash", "-c", input.Command)
-
-	// 【驾驭底线 2】：绑定执行的工作区目录
-	// 确保命令默认在用户指定的 WorkDir 下执行，而不是引擎启动时的绝对路径。
 	cmd.Dir = t.workDir
 
 	log.Printf("[bash] dir=%s cmd=%s", t.workDir, input.Command)

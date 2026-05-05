@@ -49,6 +49,28 @@ func TestTranslateMessagesToAnthropicToolResultMessage(t *testing.T) {
 	}
 }
 
+func TestTranslateMessagesToAnthropicToolResultIsErrorPropagated(t *testing.T) {
+	msgs := []schema.Message{
+		{Role: schema.RoleTool, Content: "exec failed", ToolCallID: "id2", IsError: true},
+	}
+	out, _, err := translateMessagesToAnthropic(msgs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 user message (tool result), got %d", len(out))
+	}
+	// Verify the IsError flag is carried through to the Anthropic message.
+	blocks := out[0].Content
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 content block in tool result message, got %d", len(blocks))
+	}
+	isError := blocks[0].GetIsError()
+	if isError == nil || !*isError {
+		t.Fatalf("expected IsError=true for error tool result, got %v", isError)
+	}
+}
+
 func TestTranslateMessagesToAnthropicAssistantWithTextAndToolCalls(t *testing.T) {
 	msgs := []schema.Message{
 		{

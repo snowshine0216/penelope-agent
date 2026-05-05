@@ -77,8 +77,7 @@ func TestEngineActPhaseProviderErrorPropagates(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from act phase failure, got nil")
 	}
-	if !errors.Is(p.err, errors.Unwrap(err)) {
-		// Just confirm the error message is wrapped with "act phase:"
-		_ = err // already validated non-nil; message wrapping verified below
+	if !errors.Is(err, p.err) {
+		t.Fatalf("expected error wrapping %v, got: %v", p.err, err)
 	}
 }
