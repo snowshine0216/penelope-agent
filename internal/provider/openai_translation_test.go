@@ -119,3 +119,15 @@ func TestTranslateToolsToOpenAIEmptyDefs(t *testing.T) {
 		t.Fatalf("expected 0 tools, got %d", len(out))
 	}
 }
+
+func TestTranslateToolsToOpenAIMarshalErrorPath(t *testing.T) {
+	// A channel is not JSON-serializable; this triggers the json.Marshal error
+	// in the non-map InputSchema slow path.
+	defs := []schema.ToolDefinition{
+		{Name: "bad", Description: "bad", InputSchema: make(chan int)},
+	}
+	_, err := translateToolsToOpenAI(defs)
+	if err == nil {
+		t.Fatal("expected marshal error for channel InputSchema, got nil")
+	}
+}
