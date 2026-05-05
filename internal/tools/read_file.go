@@ -67,6 +67,16 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
 
+	const maxFileBytes = 10 << 20 // 10 MB hard cap to prevent OOM on large files
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("stat file: %w", err)
+	}
+	if info.Size() > maxFileBytes {
+		return "", fmt.Errorf("file too large (%d bytes, limit %d): use offset/limit to read specific sections", info.Size(), maxFileBytes)
+	}
+
 	file, err := os.Open(fullPath)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)

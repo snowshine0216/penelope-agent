@@ -81,13 +81,13 @@ func (t *BashTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 
 	// If the command timed out, return a warning so the model knows.
 	if timeoutCtx.Err() == context.DeadlineExceeded {
-		return outputStr + "\n[warning: command timed out and was killed]", nil
+		return TruncateForLLM(outputStr, 8000) + "\n[warning: command timed out and was killed]", nil
 	}
 
 	// Self-correction mechanism: never return a Go error for bash failures.
 	// Instead, pass the combined error + output back to the model so it can self-correct.
 	if err != nil {
-		return fmt.Sprintf("execution error: %v\noutput:\n%s", err, outputStr), nil
+		return fmt.Sprintf("execution error: %v\noutput:\n%s", err, TruncateForLLM(outputStr, 8000)), nil
 	}
 
 	// If there is no output (e.g. mkdir), give the model an explicit success signal.
