@@ -1,4 +1,3 @@
-// internal/tools/registry.go
 package tools
 
 import (
@@ -69,21 +68,18 @@ func (r *registryImpl) GetAvailableTools() []schema.ToolDefinition {
 }
 
 func (r *registryImpl) Execute(ctx context.Context, call schema.ToolCall) schema.ToolResult {
-	// 1. 路由查找：如果在注册表中找不到该工具，这是模型产生了幻觉，直接向模型抛出错误
 	tool, exists := r.tools[call.Name]
 	if !exists {
 		errMsg := fmt.Sprintf("Error: tool %q not found", call.Name)
 		return schema.ToolResult{
 			ToolCallID: call.ID,
 			Output:     errMsg,
-			IsError:    true, // 标记为错误，模型看到后会尝试纠正
+			IsError:    true,
 		}
 	}
 
-	// 2. 执行工具逻辑：将原始的 JSON 字节流直接丢给具体工具
 	output, err := tool.Execute(ctx, call.Arguments)
 
-	// 3. 封装结果：将执行结果或底层物理错误封装后返回给 Main Loop
 	if err != nil {
 		errMsg := fmt.Sprintf("Error executing %s: %v", call.Name, err)
 		return schema.ToolResult{

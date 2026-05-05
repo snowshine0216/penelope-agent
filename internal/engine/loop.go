@@ -14,14 +14,13 @@ import (
 // ErrMaxTurnsExceeded is returned when Run exhausts the MaxTurns budget.
 var ErrMaxTurnsExceeded = errors.New("agent engine exceeded MaxTurns")
 
-// AgentEngine 是微型 OS 的核心驱动
+// AgentEngine drives the agent's main loop.
 type AgentEngine struct {
 	provider provider.LLMProvider
 	registry tools.Registry
 
-	// WorkDir (工作区): 借鉴 OpenClaw 的理念，Agent 必须有一个明确的物理边界
 	WorkDir        string
-	EnableThinking bool // 【新增】慢思考模式开关
+	EnableThinking bool
 
 	// MaxTurns caps the number of model turns per Run. 0 means use the
 	// default (25).
@@ -73,9 +72,6 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		}
 		log.Printf("[engine] turn %d", turnCount)
 
-		// ====================================================================
-		// Phase 1: 慢思考阶段 (Thinking) - 剥夺工具，强制规划
-		// ====================================================================
 		if e.EnableThinking {
 			log.Println("[engine] phase=think tools=disabled")
 

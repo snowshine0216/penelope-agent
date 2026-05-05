@@ -1,4 +1,3 @@
-// internal/tools/read_file.go
 package tools
 
 import (
@@ -14,7 +13,6 @@ import (
 
 // ReadFileTool reads files within the workspace.
 type ReadFileTool struct {
-	// 将引擎的 WorkDir 注入给工具，限制它只能在此目录及其子目录下操作
 	workDir string
 }
 
@@ -26,12 +24,10 @@ func (t *ReadFileTool) Name() string {
 	return "read_file"
 }
 
-// Definition 向大模型清晰地描述这个工具的用途和参数格式
 func (t *ReadFileTool) Definition() schema.ToolDefinition {
 	return schema.ToolDefinition{
 		Name:        t.Name(),
 		Description: "Read the contents of a file in the workspace. Provide a path relative to the workspace root.",
-		// 遵循 JSON Schema 规范定义参数
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -53,7 +49,6 @@ func (t *ReadFileTool) Definition() schema.ToolDefinition {
 	}
 }
 
-// readFileArgs 内部定义用于反序列化的结构体
 type readFileArgs struct {
 	Path   string `json:"path"`
 	Offset int    `json:"offset,omitempty"`
@@ -61,19 +56,17 @@ type readFileArgs struct {
 }
 
 func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
-	// 1. 延迟解析：将大模型传过来的 JSON 参数解析为强类型结构体
 	var input readFileArgs
 	if err := json.Unmarshal(args, &input); err != nil {
 		return "", fmt.Errorf("parse arguments: %w", err)
 	}
 
-	// 2. Resolve and sandbox the path — rejects absolute paths and traversal.
+	// Resolve and sandbox the path — rejects absolute paths and traversal.
 	fullPath, err := ResolveInWorkDir(t.workDir, input.Path)
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
 
-	// 3. 执行物理 IO 操作
 	file, err := os.Open(fullPath)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
@@ -85,7 +78,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 		return "", fmt.Errorf("read file: %w", err)
 	}
 
-	// 4. Optional line-based pagination; otherwise head+tail truncation.
+	// Optional line-based pagination; otherwise head+tail truncation.
 	text := string(content)
 	if input.Offset > 0 || input.Limit > 0 {
 		text = sliceLines(text, input.Offset, input.Limit)

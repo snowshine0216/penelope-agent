@@ -14,7 +14,7 @@ import (
 
 // OpenAIProvider is an LLMProvider backed by an OpenAI-compatible API endpoint.
 type OpenAIProvider struct {
-	client openai.Client // 值类型，非指针
+	client openai.Client // held by value; openai.Client is not a pointer type
 	model  string
 }
 
