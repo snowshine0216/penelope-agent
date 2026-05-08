@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
 
-func TestAtomicWriteCreatesFile(t *testing.T) {
+func TestAtomicWriteOverwritesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "file.txt")
 	if err := os.WriteFile(target, []byte("seed"), 0o644); err != nil {
@@ -124,5 +125,55 @@ func TestAtomicWriteRollsBackOnFailure(t *testing.T) {
 	}
 	if string(got) != "original" {
 		t.Fatalf("content = %q, want original (rollback failed)", got)
+	}
+}
+
+func TestAtomicWriteNonExistentPath(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "nonexistent.txt")
+
+	err := tools.AtomicWriteFile(target, []byte("data"))
+	if err == nil {
+		t.Fatal("expected error for non-existent path, got nil")
+	}
+}
+
+func TestAtomicWriteRollsBackOnRenameFailure(t *testing.T) {
+	// Inject a rename failure so Write+Sync succeed but Rename fails.
+	// The original file must remain untouched and the temp file removed.
+	orig := tools.AtomicRenameFunc
+	tools.AtomicRenameFunc = func(_, _ string) error {
+		return errors.New("injected rename failure")
+	}
+	t.Cleanup(func() { tools.AtomicRenameFunc = orig })
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(target, []byte("original"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := tools.AtomicWriteFile(target, []byte("new")); err == nil {
+		t.Fatal("expected error from injected rename failure")
+	}
+
+	// Original content must be intact.
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("readback: %v", err)
+	}
+	if string(got) != "original" {
+		t.Fatalf("content = %q, want original", got)
+	}
+
+	// Temp file must be cleaned up.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".edit-") {
+			t.Fatalf("temp file %q still present after rollback", e.Name())
+		}
 	}
 }

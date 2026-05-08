@@ -33,7 +33,7 @@ func FuzzyReplace(content, oldText, newText string, replaceAll bool) (string, in
 		return out, 4, err
 	}
 
-	return "", 0, fmt.Errorf("old_text not found")
+	return "", -1, fmt.Errorf("old_text not found")
 }
 
 // exactReplace handles L1.
@@ -43,7 +43,7 @@ func exactReplace(content, oldText, newText string, replaceAll bool) (string, bo
 		return "", false, nil
 	}
 	if count > 1 && !replaceAll {
-		return "", true, fmt.Errorf("matched %d places", count)
+		return "", false, fmt.Errorf("old_text matched %d places", count)
 	}
 	return strings.ReplaceAll(content, oldText, newText), true, nil
 }
@@ -69,7 +69,7 @@ func lineByLineReplace(content, oldText, newText string, replaceAll bool) (strin
 		return "", false, nil
 	}
 	if len(matches) > 1 && !replaceAll {
-		return "", true, fmt.Errorf("matched %d places", len(matches))
+		return "", false, fmt.Errorf("old_text matched %d places", len(matches))
 	}
 
 	// Process matches in reverse order so earlier indices remain valid.
@@ -121,6 +121,9 @@ func findLineWindowMatches(contentLines, oldLines []string) []int {
 }
 
 // extractBasePrefix returns the leading whitespace run of line.
+// Edge case: if line consists entirely of whitespace, the full string
+// is returned as the prefix. Callers should ensure the first matched
+// window line is a non-empty content line to avoid over-indenting.
 func extractBasePrefix(line string) string {
 	for i := 0; i < len(line); i++ {
 		c := line[i]

@@ -72,6 +72,19 @@ func TestFuzzyReplaceL2CRLFNormalization(t *testing.T) {
 	}
 }
 
+func TestFuzzyReplaceL2AmbiguousErrors(t *testing.T) {
+	// CRLF content where normalization produces a multi-match for old_text.
+	content := "foo\r\nbar\r\nfoo\r\nbar\r\n"
+	// oldText with LF only: after CRLF→LF normalization, matches twice.
+	_, _, err := tools.FuzzyReplace(content, "foo\nbar", "baz", false)
+	if err == nil {
+		t.Fatal("expected error for L2 multi-match, got nil")
+	}
+	if !strings.Contains(err.Error(), "matched") {
+		t.Fatalf("error = %q, want it to mention match count", err)
+	}
+}
+
 func TestFuzzyReplaceL3TrimsOldText(t *testing.T) {
 	// Content has the bare snippet; model wrapped oldText in extra
 	// blank lines and trailing whitespace.
@@ -203,8 +216,8 @@ func TestFuzzyReplaceAllLevelsMiss(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected not-found error")
 	}
-	if level != 0 {
-		t.Fatalf("level = %d, want 0 on miss", level)
+	if level != -1 {
+		t.Fatalf("level = %d, want -1 on miss", level)
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("error = %q", err)
