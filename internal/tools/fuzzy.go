@@ -15,7 +15,19 @@ func FuzzyReplace(content, oldText, newText string, replaceAll bool) (string, in
 	if out, ok, err := exactReplace(content, oldText, newText, replaceAll); ok || err != nil {
 		return out, 1, err
 	}
+
+	normContent := normalizeLineEndings(content)
+	normOld := normalizeLineEndings(oldText)
+	if out, ok, err := exactReplace(normContent, normOld, newText, replaceAll); ok || err != nil {
+		return out, 2, err
+	}
+
 	return "", 0, fmt.Errorf("old_text not found")
+}
+
+// normalizeLineEndings replaces CRLF with LF.
+func normalizeLineEndings(s string) string {
+	return strings.ReplaceAll(s, "\r\n", "\n")
 }
 
 // exactReplace handles L1: strings.Count == 1 (or replaceAll for any

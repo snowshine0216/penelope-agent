@@ -55,3 +55,19 @@ func TestFuzzyReplaceMissReturnsError(t *testing.T) {
 		t.Fatalf("error = %q, want 'not found'", err)
 	}
 }
+
+func TestFuzzyReplaceL2CRLFNormalization(t *testing.T) {
+	// File on disk has CRLF; model produced oldText with LF.
+	content := "line1\r\nline2\r\nline3\r\n"
+	out, level, err := tools.FuzzyReplace(content, "line2\nline3", "X", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if level != 2 {
+		t.Fatalf("level = %d, want 2", level)
+	}
+	// L2 normalizes the whole file to LF as a documented side effect.
+	if out != "line1\nX\n" {
+		t.Fatalf("out = %q, want %q", out, "line1\nX\n")
+	}
+}
