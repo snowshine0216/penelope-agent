@@ -58,6 +58,7 @@ upward from the current directory.
 | `bash` | Run a shell command in the workdir | **Unsandboxed.** Every command is logged. |
 | `read_file` | Read a file in the workdir | Path traversal blocked. Optional `offset`/`limit` for line pagination. |
 | `write_file` | Write a file in the workdir | Path traversal blocked. Creates parent dirs. |
+| `edit_file` | Apply string replacements to an existing file via fuzzy match (CRLF, whitespace, indentation). Multi-edit atomic; uniqueness enforced. | Path traversal blocked. Refuses non-existent files. |
 
 ## Project layout
 

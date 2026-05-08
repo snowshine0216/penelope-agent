@@ -65,3 +65,22 @@ func TestWriteFileToolNameAndDefinition(t *testing.T) {
 		t.Fatal("Definition().InputSchema must not be nil")
 	}
 }
+
+func TestEditFileToolNameAndDefinition(t *testing.T) {
+	tool := tools.NewEditFileTool(t.TempDir())
+
+	if tool.Name() != "edit_file" {
+		t.Fatalf("Name() = %q, want edit_file", tool.Name())
+	}
+
+	def := tool.Definition()
+	if def.Name != "edit_file" {
+		t.Fatalf("Definition().Name = %q, want edit_file", def.Name)
+	}
+	if def.Description == "" {
+		t.Fatal("Definition().Description must not be empty")
+	}
+	if def.InputSchema == nil {
+		t.Fatal("Definition().InputSchema must not be nil")
+	}
+}

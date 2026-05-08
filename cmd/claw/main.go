@@ -53,6 +53,7 @@ func main() {
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewReadFileTool(cwd))
 	registry.Register(tools.NewWriteFileTool(cwd))
+	registry.Register(tools.NewEditFileTool(cwd))
 	registry.Register(tools.NewBashTool(cwd))
 
 	eng := engine.NewAgentEngine(llm, registry, cwd, *think)
