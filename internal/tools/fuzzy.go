@@ -7,10 +7,11 @@ import (
 
 // FuzzyReplace runs the L1->L4 fuzzy match chain against content. It
 // returns the new content, the level (1-4) that matched, and an error
-// on miss or ambiguity. When replaceAll is true, the uniqueness check
-// is relaxed at every level: multiple matches result in multiple
-// replacements, and the chain still terminates at the first level
-// that produces >=1 match.
+// on miss or ambiguity. On a total miss the level return is -1; callers
+// should test err != nil before using the level value. When replaceAll
+// is true, the uniqueness check is relaxed at every level: multiple
+// matches result in multiple replacements, and the chain still
+// terminates at the first level that produces >=1 match.
 func FuzzyReplace(content, oldText, newText string, replaceAll bool) (string, int, error) {
 	if out, ok, err := exactReplace(content, oldText, newText, replaceAll); ok || err != nil {
 		return out, 1, err
@@ -36,7 +37,8 @@ func FuzzyReplace(content, oldText, newText string, replaceAll bool) (string, in
 	return "", -1, fmt.Errorf("old_text not found")
 }
 
-// exactReplace handles L1.
+// exactReplace performs a counted exact-string replacement on content.
+// Used at L1, L2, and L3 with progressively normalised inputs.
 func exactReplace(content, oldText, newText string, replaceAll bool) (string, bool, error) {
 	count := strings.Count(content, oldText)
 	if count == 0 {
@@ -64,7 +66,14 @@ func lineByLineReplace(content, oldText, newText string, replaceAll bool) (strin
 		return "", false, nil
 	}
 
-	matches := findLineWindowMatches(contentLines, oldLines)
+	// Pre-compute trimmed old lines once; the sliding window compares against
+	// these, avoiding O(N×K) repeated TrimSpace calls inside the inner loop.
+	trimmedOldLines := make([]string, len(oldLines))
+	for i, l := range oldLines {
+		trimmedOldLines[i] = strings.TrimSpace(l)
+	}
+
+	matches := findLineWindowMatches(contentLines, trimmedOldLines)
 	if len(matches) == 0 {
 		return "", false, nil
 	}
@@ -93,26 +102,27 @@ func lineByLineReplace(content, oldText, newText string, replaceAll bool) (strin
 }
 
 // findLineWindowMatches returns the start indices of every contiguous
-// content-line window of length len(oldLines) where each pair compares
-// equal after TrimSpace. Match windows are non-overlapping (advance i
-// by len(oldLines) after a hit).
-func findLineWindowMatches(contentLines, oldLines []string) []int {
+// content-line window of length len(trimmedOldLines) where each pair
+// compares equal after TrimSpace on the content side.
+// trimmedOldLines must be pre-trimmed by the caller.
+// Match windows are non-overlapping (advance i by len(trimmedOldLines) after a hit).
+func findLineWindowMatches(contentLines, trimmedOldLines []string) []int {
 	var hits []int
-	if len(oldLines) == 0 {
+	if len(trimmedOldLines) == 0 {
 		return hits
 	}
 	i := 0
-	for i+len(oldLines) <= len(contentLines) {
+	for i+len(trimmedOldLines) <= len(contentLines) {
 		matched := true
-		for j := 0; j < len(oldLines); j++ {
-			if strings.TrimSpace(contentLines[i+j]) != strings.TrimSpace(oldLines[j]) {
+		for j := 0; j < len(trimmedOldLines); j++ {
+			if strings.TrimSpace(contentLines[i+j]) != trimmedOldLines[j] {
 				matched = false
 				break
 			}
 		}
 		if matched {
 			hits = append(hits, i)
-			i += len(oldLines)
+			i += len(trimmedOldLines)
 		} else {
 			i++
 		}

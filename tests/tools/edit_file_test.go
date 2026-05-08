@@ -188,6 +188,9 @@ func TestEditFileEmptyEditsArrayErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty edits")
 	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("error = %q, want mention of 'empty'", err)
+	}
 }
 
 func TestEditFileMalformedArgsErrors(t *testing.T) {
@@ -195,6 +198,9 @@ func TestEditFileMalformedArgsErrors(t *testing.T) {
 	_, err := tool.Execute(context.Background(), json.RawMessage(`{"path":}`))
 	if err == nil {
 		t.Fatal("expected JSON parse error")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("error = %q, want mention of 'parse'", err)
 	}
 }
 
@@ -268,7 +274,7 @@ func TestEditFileAmbiguousMatchError(t *testing.T) {
 
 // Gap coverage: os.Stat returns a non-IsNotExist error (permission denied)
 func TestEditFileStatPermissionError(t *testing.T) {
-	if os.Getuid() == 0 {
+	if os.Geteuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
 	dir := t.TempDir()
@@ -284,7 +290,7 @@ func TestEditFileStatPermissionError(t *testing.T) {
 	if err := os.Chmod(subdir, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(subdir, 0o755) //nolint:errcheck
+	t.Cleanup(func() { _ = os.Chmod(subdir, 0o755) })
 
 	tool := tools.NewEditFileTool(dir)
 	args := editArgs(t, "locked/x.txt", []map[string]interface{}{
@@ -301,7 +307,7 @@ func TestEditFileStatPermissionError(t *testing.T) {
 
 // Gap coverage: os.ReadFile returns an error (write-only file)
 func TestEditFileReadFileFailure(t *testing.T) {
-	if os.Getuid() == 0 {
+	if os.Geteuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
 	dir := t.TempDir()
@@ -326,7 +332,7 @@ func TestEditFileReadFileFailure(t *testing.T) {
 
 // Gap coverage: AtomicWriteFile fails (directory made read-only after seed)
 func TestEditFileAtomicWriteFailure(t *testing.T) {
-	if os.Getuid() == 0 {
+	if os.Geteuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
 	dir := t.TempDir()
@@ -338,7 +344,7 @@ func TestEditFileAtomicWriteFailure(t *testing.T) {
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(dir, 0o755) //nolint:errcheck
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
 	tool := tools.NewEditFileTool(dir)
 	args := editArgs(t, "x.txt", []map[string]interface{}{

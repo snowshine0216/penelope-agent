@@ -301,8 +301,9 @@ func TestFuzzyReplaceL4FirstWindowLineAllWhitespace(t *testing.T) {
 	}
 	// The base prefix comes from the all-whitespace first line "   " → "   ".
 	// Non-empty replacement lines get that prefix; empty lines stay empty.
-	if !strings.Contains(out, "replaced") {
-		t.Fatalf("out = %q, want 'replaced' to appear", out)
+	want := "   \n   replaced\n"
+	if out != want {
+		t.Fatalf("out = %q, want %q", out, want)
 	}
 }
 
@@ -323,7 +324,8 @@ func TestFuzzyReplaceL4NewTextAllEmptyLines(t *testing.T) {
 	}
 	// The 2-line window is replaced by 2 empty lines; "end" and trailing
 	// newline remain.
-	if !strings.Contains(out, "end") {
-		t.Fatalf("out = %q, want 'end' to remain", out)
+	want := "\n\nend\n"
+	if out != want {
+		t.Fatalf("out = %q, want %q", out, want)
 	}
 }

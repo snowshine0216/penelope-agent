@@ -119,7 +119,7 @@ func (t *EditFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 			return "", formatEditError(i, input.Path, ferr)
 		}
 		current = next
-		levelCounts[level-1]++
+		levelCounts[level-1]++ // level is 1-based; shift to 0-based index
 	}
 
 	if err := AtomicWriteFile(fullPath, []byte(current)); err != nil {
