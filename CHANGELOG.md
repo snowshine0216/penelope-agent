@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- `edit_file` tool: multi-edit string replacement with L1→L4 fuzzy match
+  chain (exact → CRLF normalization → TrimSpace → line-by-line
+  TrimSpace + sliding window with base-indent realignment), atomic
+  rollback across an edits array, and atomic file write via temp +
+  rename. Refuses non-existent files (use `write_file`) and no-op
+  edits. Mounted in `cmd/claw/main.go`.
+
 ## [0.1.0.0] - 2026-05-05
 
 ### Added
