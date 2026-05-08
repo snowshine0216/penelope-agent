@@ -99,3 +99,114 @@ func TestFuzzyReplaceL3AmbiguityErrors(t *testing.T) {
 		t.Fatal("expected error for L3 ambiguity")
 	}
 }
+
+func TestFuzzyReplaceL4IndentationHallucination(t *testing.T) {
+	// File has 8-space indented block; model omitted indentation in oldText.
+	content := "func main() {\n        if x {\n                doThing()\n        }\n}\n"
+	oldText := "if x {\n        doThing()\n}"
+	newText := "if y {\n        otherThing()\n}"
+
+	out, level, err := tools.FuzzyReplace(content, oldText, newText, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if level != 4 {
+		t.Fatalf("level = %d, want 4", level)
+	}
+
+	want := "func main() {\n        if y {\n                otherThing()\n        }\n}\n"
+	if out != want {
+		t.Fatalf("out = %q\nwant = %q", out, want)
+	}
+}
+
+func TestFuzzyReplaceL4AmbiguityErrors(t *testing.T) {
+	// Two windows TrimSpace-match identically.
+	content := "    foo\n    bar\n        foo\n        bar\n"
+	oldText := "foo\nbar"
+	_, _, err := tools.FuzzyReplace(content, oldText, "X\nY", false)
+	if err == nil {
+		t.Fatal("expected error for L4 ambiguity")
+	}
+	if !strings.Contains(err.Error(), "matched") {
+		t.Fatalf("error = %q, want it to mention match count", err)
+	}
+}
+
+func TestFuzzyReplaceL4ReplaceAllPreservesPerWindowIndent(t *testing.T) {
+	// Two windows at different base indents. With replaceAll, each
+	// must come out reindented to its own base prefix.
+	content := "" +
+		"    foo\n" +
+		"    bar\n" +
+		"middle\n" +
+		"        foo\n" +
+		"        bar\n"
+	oldText := "foo\nbar"
+	newText := "X\nY"
+
+	out, level, err := tools.FuzzyReplace(content, oldText, newText, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if level != 4 {
+		t.Fatalf("level = %d, want 4", level)
+	}
+	want := "" +
+		"    X\n" +
+		"    Y\n" +
+		"middle\n" +
+		"        X\n" +
+		"        Y\n"
+	if out != want {
+		t.Fatalf("out = %q\nwant = %q", out, want)
+	}
+}
+
+func TestFuzzyReplaceL4PreservesRelativeIndentInNewText(t *testing.T) {
+	content := "" +
+		"top\n" +
+		"        if x {\n" +
+		"                inner()\n" +
+		"        }\n" +
+		"end\n"
+	oldText := "" +
+		"if x {\n" +
+		"        inner()\n" +
+		"}"
+	newText := "" +
+		"if y {\n" +
+		"    inner2()\n" +
+		"}"
+
+	out, level, err := tools.FuzzyReplace(content, oldText, newText, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if level != 4 {
+		t.Fatalf("level = %d, want 4", level)
+	}
+	want := "" +
+		"top\n" +
+		"        if y {\n" +
+		"            inner2()\n" +
+		"        }\n" +
+		"end\n"
+	if out != want {
+		t.Fatalf("out = %q\nwant = %q", out, want)
+	}
+}
+
+func TestFuzzyReplaceAllLevelsMiss(t *testing.T) {
+	content := "alpha\nbeta\ngamma\n"
+	_, level, err := tools.FuzzyReplace(content, "delta", "epsilon", false)
+	if err == nil {
+		t.Fatal("expected not-found error")
+	}
+	if level != 0 {
+		t.Fatalf("level = %d, want 0 on miss", level)
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("error = %q", err)
+	}
+}
