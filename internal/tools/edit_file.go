@@ -111,6 +111,9 @@ func (t *EditFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 	current := string(original)
 	var levelCounts [4]int
 	for i, e := range input.Edits {
+		if e.OldText == "" {
+			return "", fmt.Errorf("edit_file: edit[%d] old_text is empty", i)
+		}
 		if e.OldText == e.NewText {
 			return "", fmt.Errorf("edit_file: edit[%d] old_text equals new_text", i)
 		}

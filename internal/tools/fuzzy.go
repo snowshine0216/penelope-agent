@@ -29,8 +29,14 @@ func FuzzyReplace(content, oldText, newText string, replaceAll bool) (string, in
 		return out, 2, err
 	}
 
+	// L3: TrimSpace on oldText — handles model-wrapped snippets where the
+	// model added surrounding blank lines or trailing whitespace. Only fires
+	// when normOld contains at least one newline: this ensures the only
+	// stripping was outer blank lines (the intended case). Purely
+	// space-padded single-line old_text (e.g. "  return value  ") is skipped
+	// to prevent substring matches inside adjacent tokens.
 	trimmedOld := strings.TrimSpace(normOld)
-	if trimmedOld != "" {
+	if trimmedOld != "" && strings.Contains(normOld, "\n") {
 		if out, ok, err := exactReplace(normContent, trimmedOld, newText, replaceAll); ok || err != nil {
 			return out, 3, err
 		}

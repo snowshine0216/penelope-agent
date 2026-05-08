@@ -243,9 +243,13 @@ func TestFuzzyReplaceL2ReplaceAll(t *testing.T) {
 
 // Gap coverage: L3 + replaceAll=true
 func TestFuzzyReplaceL3ReplaceAll(t *testing.T) {
-	// Two occurrences; oldText wrapped in whitespace triggers L3.
+	// Two occurrences; oldText is a multi-line snippet with outer blank lines.
+	// L3 strips the blank lines and matches. L1 misses because oldText has the
+	// extra trailing blank line that the content doesn't have.
+	// L3 only activates when normOld contains a newline (to avoid substring
+	// matches inside adjacent tokens for single-line snippets).
 	content := "foo bar\nfoo bar\n"
-	out, level, err := tools.FuzzyReplace(content, "  foo bar  ", "baz", true)
+	out, level, err := tools.FuzzyReplace(content, "foo bar\n\n", "baz", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
