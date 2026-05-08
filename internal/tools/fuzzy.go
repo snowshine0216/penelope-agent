@@ -22,6 +22,13 @@ func FuzzyReplace(content, oldText, newText string, replaceAll bool) (string, in
 		return out, 2, err
 	}
 
+	trimmedOld := strings.TrimSpace(normOld)
+	if trimmedOld != "" {
+		if out, ok, err := exactReplace(normContent, trimmedOld, newText, replaceAll); ok || err != nil {
+			return out, 3, err
+		}
+	}
+
 	return "", 0, fmt.Errorf("old_text not found")
 }
 

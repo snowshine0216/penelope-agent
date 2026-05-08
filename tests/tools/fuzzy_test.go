@@ -71,3 +71,31 @@ func TestFuzzyReplaceL2CRLFNormalization(t *testing.T) {
 		t.Fatalf("out = %q, want %q", out, "line1\nX\n")
 	}
 }
+
+func TestFuzzyReplaceL3TrimsOldText(t *testing.T) {
+	// Content has the bare snippet; model wrapped oldText in extra
+	// blank lines and trailing whitespace.
+	content := "before\nfoo bar\nafter\n"
+	oldText := "\n\n  foo bar  \n\n"
+	out, level, err := tools.FuzzyReplace(content, oldText, "REPLACED", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if level != 3 {
+		t.Fatalf("level = %d, want 3", level)
+	}
+	// L3 replaces only the trimmed-match's byte range; surrounding
+	// whitespace in the original file stays intact.
+	if out != "before\nREPLACED\nafter\n" {
+		t.Fatalf("out = %q", out)
+	}
+}
+
+func TestFuzzyReplaceL3AmbiguityErrors(t *testing.T) {
+	content := "foo bar\nfoo bar\n"
+	oldText := "  foo bar  "
+	_, _, err := tools.FuzzyReplace(content, oldText, "X", false)
+	if err == nil {
+		t.Fatal("expected error for L3 ambiguity")
+	}
+}
