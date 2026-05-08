@@ -241,3 +241,114 @@ func TestEditFileIndentationHallucinationIntegration(t *testing.T) {
 		t.Fatalf("file = %q\nwant = %q", got, want)
 	}
 }
+
+// Gap coverage: formatEditError else branch (ambiguous match, not "not found")
+func TestEditFileAmbiguousMatchError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "x.txt")
+	if err := os.WriteFile(target, []byte("foo\nfoo\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	tool := tools.NewEditFileTool(dir)
+	args := editArgs(t, "x.txt", []map[string]interface{}{
+		{"old_text": "foo", "new_text": "bar"}, // two occurrences → ambiguous
+	})
+	_, err := tool.Execute(context.Background(), args)
+	if err == nil {
+		t.Fatal("expected error for ambiguous match, got nil")
+	}
+	if strings.Contains(err.Error(), "not found") {
+		t.Fatalf("error mentions 'not found' but should be ambiguous: %v", err)
+	}
+	if !strings.Contains(err.Error(), "disambiguate") {
+		t.Fatalf("error = %v, want mention of 'disambiguate'", err)
+	}
+}
+
+// Gap coverage: os.Stat returns a non-IsNotExist error (permission denied)
+func TestEditFileStatPermissionError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "locked")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(subdir, "x.txt")
+	if err := os.WriteFile(target, []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Remove execute bit so os.Stat of any path inside will fail.
+	if err := os.Chmod(subdir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(subdir, 0o755) //nolint:errcheck
+
+	tool := tools.NewEditFileTool(dir)
+	args := editArgs(t, "locked/x.txt", []map[string]interface{}{
+		{"old_text": "hello", "new_text": "world"},
+	})
+	_, err := tool.Execute(context.Background(), args)
+	if err == nil {
+		t.Fatal("expected error for permission-denied stat")
+	}
+	if strings.Contains(err.Error(), "write_file") {
+		t.Fatalf("error mentions write_file but should be a stat error: %v", err)
+	}
+}
+
+// Gap coverage: os.ReadFile returns an error (write-only file)
+func TestEditFileReadFileFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "x.txt")
+	// 0o200 = write-only: os.Stat succeeds (checks dir entry), os.ReadFile fails.
+	if err := os.WriteFile(target, []byte("hello\n"), 0o200); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	tool := tools.NewEditFileTool(dir)
+	args := editArgs(t, "x.txt", []map[string]interface{}{
+		{"old_text": "hello", "new_text": "world"},
+	})
+	_, err := tool.Execute(context.Background(), args)
+	if err == nil {
+		t.Fatal("expected error for unreadable file")
+	}
+	if !strings.Contains(err.Error(), "read file") {
+		t.Fatalf("error = %v, want 'read file' error", err)
+	}
+}
+
+// Gap coverage: AtomicWriteFile fails (directory made read-only after seed)
+func TestEditFileAtomicWriteFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "x.txt")
+	if err := os.WriteFile(target, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Read-only dir: stat and ReadFile still succeed; CreateTemp fails.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o755) //nolint:errcheck
+
+	tool := tools.NewEditFileTool(dir)
+	args := editArgs(t, "x.txt", []map[string]interface{}{
+		{"old_text": "hello", "new_text": "world"},
+	})
+	_, err := tool.Execute(context.Background(), args)
+	if err == nil {
+		t.Fatal("expected error when directory is read-only")
+	}
+	if !strings.Contains(err.Error(), "write file") {
+		t.Fatalf("error = %v, want 'write file' error", err)
+	}
+}
