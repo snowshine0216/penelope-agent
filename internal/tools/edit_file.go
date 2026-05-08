@@ -3,9 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 )
@@ -134,8 +134,7 @@ func (t *EditFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 }
 
 func formatEditError(editIndex int, path string, ferr error) error {
-	msg := ferr.Error()
-	if strings.Contains(msg, "not found") {
+	if errors.Is(ferr, ErrNotFound) {
 		return fmt.Errorf(
 			"edit_file: edit[%d] old_text not found in %q; re-read the file and check exact contents (incl. whitespace and line endings)",
 			editIndex, path,
@@ -143,6 +142,6 @@ func formatEditError(editIndex int, path string, ferr error) error {
 	}
 	return fmt.Errorf(
 		"edit_file: edit[%d] %s in %q; provide more surrounding context to disambiguate, or set replace_all=true",
-		editIndex, msg, path,
+		editIndex, ferr.Error(), path,
 	)
 }

@@ -1,9 +1,15 @@
 package tools
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrNotFound is returned by FuzzyReplace when old_text cannot be
+// located via any level of the match chain. Callers may test with
+// errors.Is to distinguish a 'not found' result from an ambiguity error.
+var ErrNotFound = errors.New("old_text not found")
 
 // FuzzyReplace runs the L1->L4 fuzzy match chain against content. It
 // returns the new content, the level (1-4) that matched, and an error
@@ -34,7 +40,7 @@ func FuzzyReplace(content, oldText, newText string, replaceAll bool) (string, in
 		return out, 4, err
 	}
 
-	return "", -1, fmt.Errorf("old_text not found")
+	return "", -1, fmt.Errorf("%w", ErrNotFound)
 }
 
 // exactReplace performs a counted exact-string replacement on content.
