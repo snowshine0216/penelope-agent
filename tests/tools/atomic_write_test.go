@@ -141,11 +141,9 @@ func TestAtomicWriteNonExistentPath(t *testing.T) {
 func TestAtomicWriteRollsBackOnRenameFailure(t *testing.T) {
 	// Inject a rename failure so Write+Sync succeed but Rename fails.
 	// The original file must remain untouched and the temp file removed.
-	orig := tools.AtomicRenameFunc
-	tools.AtomicRenameFunc = func(_, _ string) error {
+	failRename := func(_, _ string) error {
 		return errors.New("injected rename failure")
 	}
-	t.Cleanup(func() { tools.AtomicRenameFunc = orig })
 
 	dir := t.TempDir()
 	target := filepath.Join(dir, "file.txt")
@@ -153,7 +151,7 @@ func TestAtomicWriteRollsBackOnRenameFailure(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	if err := tools.AtomicWriteFile(target, []byte("new")); err == nil {
+	if err := tools.AtomicWriteFileWith(target, []byte("new"), failRename); err == nil {
 		t.Fatal("expected error from injected rename failure")
 	}
 

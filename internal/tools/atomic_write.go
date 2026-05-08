@@ -6,15 +6,17 @@ import (
 	"path/filepath"
 )
 
-// AtomicRenameFunc is the rename syscall used by AtomicWriteFile.
-// It may be replaced in tests to inject rename failures.
-var AtomicRenameFunc func(string, string) error = os.Rename
-
 // AtomicWriteFile writes data to path atomically: writes to a temp file
 // in the same directory, fsyncs, then renames over path. On any error,
 // the temp file is removed and the original path is untouched.
 // Preserves the original file's mode. Caller must ensure path exists.
 func AtomicWriteFile(path string, data []byte) error {
+	return AtomicWriteFileWith(path, data, os.Rename)
+}
+
+// AtomicWriteFileWith is like AtomicWriteFile but accepts a custom rename
+// function. Useful in tests to inject rename failures without global state.
+func AtomicWriteFileWith(path string, data []byte, renameFn func(string, string) error) error {
 	origInfo, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("stat original: %w", err)
@@ -50,7 +52,7 @@ func AtomicWriteFile(path string, data []byte) error {
 		return fmt.Errorf("chmod temp: %w", err)
 	}
 
-	if err := AtomicRenameFunc(tmpName, path); err != nil {
+	if err := renameFn(tmpName, path); err != nil {
 		return fmt.Errorf("rename: %w", err)
 	}
 	committed = true
