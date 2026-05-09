@@ -161,7 +161,8 @@ For a multi-call group:
 
 1. Create `results := make([]schema.ToolResult, len(group))`.
 2. Launch workers up to the resolved concurrency limit.
-3. Each worker writes only to its assigned result index.
+3. Each worker sends `{index, result}` to a fan-in channel. The parent
+   goroutine is the only writer to the ordered `results` slice.
 4. Wait for all launched workers to finish.
 5. If `ctx.Err()` is non-nil after the group joins, return that error.
 6. Return results in the same index order as `group`.
@@ -170,9 +171,36 @@ This keeps the engine’s observable behavior deterministic.
 
 ## Observation Ordering
 
-Tool observations must not be appended as goroutines finish. The group
-executor collects results by index. The loop appends observations only
-after the whole group completes:
+Tool observations must not be appended as goroutines finish. No worker
+goroutine mutates `contextHistory`. The group executor collects results
+by original call index. The loop appends observations only after the
+whole group completes, from the parent goroutine:
+
+```go
+results := make([]schema.ToolResult, len(group))
+resultCh := make(chan indexedToolResult, len(group))
+var wg sync.WaitGroup
+
+for i, call := range group {
+    wg.Add(1)
+    go func(i int, call schema.ToolCall) {
+        defer wg.Done()
+        resultCh <- indexedToolResult{
+            index:  i,
+            result: registry.Execute(ctx, call),
+        }
+    }(i, call)
+}
+
+wg.Wait()
+close(resultCh)
+
+for item := range resultCh {
+    results[item.index] = item.result
+}
+```
+
+Then the parent goroutine appends in index order:
 
 ```go
 for _, result := range results {
