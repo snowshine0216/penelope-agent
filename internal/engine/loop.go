@@ -25,6 +25,10 @@ type AgentEngine struct {
 	// MaxTurns caps the number of model turns per Run. 0 means use the
 	// default (25).
 	MaxTurns int
+
+	// MaxParallelToolCalls caps concurrently executing parallel-safe tools.
+	// 0 means use the default (4).
+	MaxParallelToolCalls int
 }
 
 // NewAgentEngine constructs an AgentEngine with the given provider, registry, and work directory.
@@ -110,30 +114,39 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 		log.Printf("[engine] tool calls requested: %d", len(actionResp.ToolCalls))
 
-		for _, toolCall := range actionResp.ToolCalls {
+		groups := PlanToolCallGroups(actionResp.ToolCalls, e.registry.ExecutionPolicyFor)
+		for _, group := range groups {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			log.Printf("[engine] executing tool=%s args=%s", toolCall.Name, string(toolCall.Arguments))
 
-			result := e.registry.Execute(ctx, toolCall)
-
-			if result.IsError {
-				log.Printf("[engine] tool error: %s", result.Output)
-			} else {
-				log.Printf("[engine] tool ok: %d bytes", len(result.Output))
+			results, err := executeToolCallGroup(ctx, e.registry, group, e.toolGroupLimit(group))
+			if err != nil {
+				return err
 			}
 
-			// Append the tool result as an observation for the next turn.
-			observationMsg := schema.Message{
-				Role:       schema.RoleTool,
-				Content:    result.Output,
-				ToolCallID: toolCall.ID,
-				IsError:    result.IsError,
-			}
-			contextHistory = append(contextHistory, observationMsg)
+			contextHistory = appendToolResultMessages(contextHistory, results)
 		}
 	}
 
 	return nil
+}
+
+func (e *AgentEngine) toolGroupLimit(group []schema.ToolCall) int {
+	limit := e.MaxParallelToolCalls
+	if limit <= 0 {
+		limit = defaultParallelToolConcurrency
+	}
+
+	for _, call := range group {
+		policy := e.registry.ExecutionPolicyFor(call)
+		if !policy.ParallelSafe || policy.MaxConcurrency <= 0 {
+			continue
+		}
+		if policy.MaxConcurrency < limit {
+			limit = policy.MaxConcurrency
+		}
+	}
+
+	return limit
 }
