@@ -34,6 +34,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Parallel-safe tool execution in the engine: consecutive safe tool
+  calls can run concurrently with deterministic observation ordering,
+  an engine-wide concurrency cap, and conservative serial fallback for
+  mutating or unknown tools. `read_file` is the first parallel-safe
+  built-in tool.
+
 ## [0.1.0.0] - 2026-05-05
 
 ### Added
