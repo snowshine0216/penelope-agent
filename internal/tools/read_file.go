@@ -49,6 +49,10 @@ func (t *ReadFileTool) Definition() schema.ToolDefinition {
 	}
 }
 
+func (t *ReadFileTool) ExecutionPolicy() ExecutionPolicy {
+	return ExecutionPolicy{ParallelSafe: true}
+}
+
 type readFileArgs struct {
 	Path   string `json:"path"`
 	Offset int    `json:"offset,omitempty"`

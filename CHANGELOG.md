@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.0.0] - 2026-05-10
+
+### Added
+- Parallel-safe tool execution: consecutive safe tool calls in the same assistant
+  turn run concurrently with bounded worker fan-out and deterministic observation
+  ordering. Unknown and mutating tools remain serial.
+- `ExecutionPolicy` type and `ExecutionPolicyProvider` interface in the tools
+  registry, letting any tool opt into parallel scheduling with an optional per-tool
+  concurrency cap (`MaxConcurrency`).
+- `PlanToolCallGroups` pure planner: splits a flat list of tool calls into ordered
+  execution groups — consecutive parallel-safe calls share a group; serial calls
+  stand alone.
+- `AgentEngine.MaxParallelToolCalls` field to cap engine-wide parallel concurrency
+  (default 4).
+- `read_file` is now the first built-in parallel-safe tool.
+
 ## [0.2.0.0] - 2026-05-08
 
 ### Added
@@ -33,6 +49,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   variable (addressed code review feedback).
 
 ## [Unreleased]
+
+### Added
+- Parallel-safe tool execution in the engine: consecutive safe tool
+  calls can run concurrently with deterministic observation ordering,
+  an engine-wide concurrency cap, and conservative serial fallback for
+  mutating or unknown tools. `read_file` is the first parallel-safe
+  built-in tool.
 
 ## [0.1.0.0] - 2026-05-05
 

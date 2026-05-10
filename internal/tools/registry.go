@@ -23,6 +23,18 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage) (string, error)
 }
 
+// ExecutionPolicy describes how safely the engine may schedule a tool.
+type ExecutionPolicy struct {
+	ParallelSafe   bool
+	MaxConcurrency int // MaxConcurrency caps concurrent executions of this tool (0 = engine default).
+}
+
+// ExecutionPolicyProvider can be implemented by tools that opt into
+// non-default scheduling. Tools that do not implement it are serial.
+type ExecutionPolicyProvider interface {
+	ExecutionPolicy() ExecutionPolicy
+}
+
 // Registry defines the tool registration and dispatch interface.
 type Registry interface {
 	// Register mounts a new tool into the registry.
@@ -33,6 +45,10 @@ type Registry interface {
 
 	// Execute routes and runs a model-requested tool call.
 	Execute(ctx context.Context, call schema.ToolCall) schema.ToolResult
+
+	// ExecutionPolicyFor returns engine-facing scheduling metadata for a tool call.
+	// Unknown tools and tools without explicit policy are treated as serial.
+	ExecutionPolicyFor(call schema.ToolCall) ExecutionPolicy
 }
 
 // registryImpl is the default Registry implementation.
@@ -94,4 +110,28 @@ func (r *registryImpl) Execute(ctx context.Context, call schema.ToolCall) schema
 		Output:     output,
 		IsError:    false,
 	}
+}
+
+func (r *registryImpl) ExecutionPolicyFor(call schema.ToolCall) ExecutionPolicy {
+	tool, exists := r.tools[call.Name]
+	if !exists {
+		return ExecutionPolicy{}
+	}
+
+	policyProvider, ok := tool.(ExecutionPolicyProvider)
+	if !ok {
+		return ExecutionPolicy{}
+	}
+
+	return normalizeExecutionPolicy(policyProvider.ExecutionPolicy())
+}
+
+func normalizeExecutionPolicy(policy ExecutionPolicy) ExecutionPolicy {
+	if !policy.ParallelSafe {
+		return ExecutionPolicy{}
+	}
+	if policy.MaxConcurrency < 0 {
+		return ExecutionPolicy{ParallelSafe: true}
+	}
+	return policy
 }

@@ -145,3 +145,84 @@ func TestRegistryExecutePassesArgumentsThrough(t *testing.T) {
 		t.Fatalf("arguments lost: got %s", seen)
 	}
 }
+
+type policyFakeTool struct {
+	*fakeTool
+	policy tools.ExecutionPolicy
+}
+
+func (p *policyFakeTool) ExecutionPolicy() tools.ExecutionPolicy {
+	return p.policy
+}
+
+func TestRegistryExecutionPolicyForUnknownToolDefaultsSerial(t *testing.T) {
+	r := tools.NewRegistry()
+
+	got := r.ExecutionPolicyFor(schema.ToolCall{Name: "ghost"})
+
+	if got.ParallelSafe {
+		t.Fatalf("unknown tool policy ParallelSafe = true, want false")
+	}
+	if got.MaxConcurrency != 0 {
+		t.Fatalf("unknown tool MaxConcurrency = %d, want 0", got.MaxConcurrency)
+	}
+}
+
+func TestRegistryExecutionPolicyForToolWithoutPolicyDefaultsSerial(t *testing.T) {
+	r := tools.NewRegistry()
+	r.Register(newFake("plain", "", okExec("ok")))
+
+	got := r.ExecutionPolicyFor(schema.ToolCall{Name: "plain"})
+
+	if got.ParallelSafe {
+		t.Fatalf("plain tool policy ParallelSafe = true, want false")
+	}
+}
+
+func TestRegistryExecutionPolicyUsesToolPolicy(t *testing.T) {
+	r := tools.NewRegistry()
+	r.Register(&policyFakeTool{
+		fakeTool: newFake("api_read", "", okExec("ok")),
+		policy:   tools.ExecutionPolicy{ParallelSafe: true, MaxConcurrency: 2},
+	})
+
+	got := r.ExecutionPolicyFor(schema.ToolCall{Name: "api_read"})
+
+	if !got.ParallelSafe {
+		t.Fatal("policy ParallelSafe = false, want true")
+	}
+	if got.MaxConcurrency != 2 {
+		t.Fatalf("MaxConcurrency = %d, want 2", got.MaxConcurrency)
+	}
+}
+
+func TestRegistryExecutionPolicyForReadFileAllowsParallel(t *testing.T) {
+	r := tools.NewRegistry()
+	r.Register(tools.NewReadFileTool(t.TempDir()))
+
+	got := r.ExecutionPolicyFor(schema.ToolCall{Name: "read_file"})
+
+	if !got.ParallelSafe {
+		t.Fatal("read_file should be parallel-safe")
+	}
+	if got.MaxConcurrency != 0 {
+		t.Fatalf("read_file MaxConcurrency = %d, want 0 to use engine default", got.MaxConcurrency)
+	}
+}
+
+func TestRegistryExecutionPolicyNormalizesNegativeConcurrency(t *testing.T) {
+	r := tools.NewRegistry()
+	r.Register(&policyFakeTool{
+		fakeTool: newFake("capped", "", okExec("ok")),
+		policy:   tools.ExecutionPolicy{ParallelSafe: true, MaxConcurrency: -1},
+	})
+
+	got := r.ExecutionPolicyFor(schema.ToolCall{Name: "capped"})
+
+	if !got.ParallelSafe {
+		t.Fatal("policy with negative MaxConcurrency should still be parallel-safe")
+	}
+	if got.MaxConcurrency != 0 {
+		t.Fatalf("negative MaxConcurrency should be clamped to 0, got %d", got.MaxConcurrency)
+	}
+}

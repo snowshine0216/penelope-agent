@@ -9,7 +9,9 @@ Given a prompt, the agent:
 1. Loads provider config from environment / `.env`.
 2. Mounts a tool registry (bash, read_file, write_file).
 3. Optionally runs a "thinking" phase (no tools, plan only).
-4. Runs an action phase where the model can call tools.
+4. Runs an action phase where the model can call tools; parallel-safe
+   tool calls in the same turn may run concurrently while mutating or
+   unknown tools remain serial.
 5. Loops on tool results until the model stops asking for tools or
    `--max-turns` is hit.
 
@@ -59,6 +61,12 @@ upward from the current directory.
 | `read_file` | Read a file in the workdir | Path traversal blocked. Optional `offset`/`limit` for line pagination. |
 | `write_file` | Write a file in the workdir | Path traversal blocked. Creates parent dirs. |
 | `edit_file` | Apply string replacements to an existing file via fuzzy match (CRLF, whitespace, indentation). Multi-edit atomic; uniqueness enforced. | Path traversal blocked. Refuses non-existent files. |
+
+Tool calls requested in the same assistant message are executed in
+ordered groups. `read_file` opts into parallel execution; `bash`,
+`write_file`, `edit_file`, and unknown tools stay serial. Tool results
+are appended to model history in the original request order, not
+completion order.
 
 ## Project layout
 
