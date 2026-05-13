@@ -53,7 +53,7 @@ func TestEngineHonorsContextCancellationDuringToolLoop(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	err := eng.Run(ctx, "go")
+	err := eng.Run(ctx, "go", noOpReporter{})
 	if err == nil {
 		t.Fatal("expected context cancellation error, got nil")
 	}
@@ -73,7 +73,7 @@ func TestEngineActPhaseProviderErrorPropagates(t *testing.T) {
 	registry := tools.NewRegistry()
 	eng := engine.NewAgentEngine(p, registry, t.TempDir(), false)
 
-	err := eng.Run(context.Background(), "go")
+	err := eng.Run(context.Background(), "go", noOpReporter{})
 	if err == nil {
 		t.Fatal("expected error from act phase failure, got nil")
 	}

@@ -58,8 +58,9 @@ func main() {
 
 	eng := engine.NewAgentEngine(llm, registry, cwd, *think)
 	eng.MaxTurns = *maxTurns
+	reporter := engine.NewTerminalReporter()
 
-	if err := eng.Run(context.Background(), userPrompt); err != nil {
+	if err := eng.Run(context.Background(), userPrompt, reporter); err != nil {
 		log.Fatalf("engine: %v", err)
 	}
 }

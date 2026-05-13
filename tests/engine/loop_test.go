@@ -50,6 +50,22 @@ type recordingTool struct {
 	lastArgs  json.RawMessage
 }
 
+type toolCallRecordingReporter struct {
+	toolCalls []string
+	args      []string
+}
+
+func (r *toolCallRecordingReporter) OnThinking(context.Context) {}
+
+func (r *toolCallRecordingReporter) OnToolCall(_ context.Context, toolName string, args string) {
+	r.toolCalls = append(r.toolCalls, toolName)
+	r.args = append(r.args, args)
+}
+
+func (r *toolCallRecordingReporter) OnToolResult(context.Context, string, string, bool) {}
+
+func (r *toolCallRecordingReporter) OnMessage(context.Context, string) {}
+
 func (r *recordingTool) Name() string { return r.name }
 
 func (r *recordingTool) Definition() schema.ToolDefinition {
@@ -78,7 +94,7 @@ func TestEngineExitsWhenModelReturnsNoToolCalls(t *testing.T) {
 	registry := tools.NewRegistry()
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
 
-	if err := eng.Run(context.Background(), "hello"); err != nil {
+	if err := eng.Run(context.Background(), "hello", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if provider.calls != 1 {
@@ -104,7 +120,7 @@ func TestEngineExecutesToolThenContinues(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -116,6 +132,40 @@ func TestEngineExecutesToolThenContinues(t *testing.T) {
 	}
 	if provider.calls != 2 {
 		t.Fatalf("provider.calls = %d, want 2 (tool turn + final turn)", provider.calls)
+	}
+}
+
+func TestEngineReportsToolCallEvents(t *testing.T) {
+	tool := &recordingTool{name: "noop", output: "tool said hi"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	provider := &fakeProvider{
+		responses: []schema.Message{
+			{
+				Role: schema.RoleAssistant,
+				ToolCalls: []schema.ToolCall{
+					{ID: "call_1", Name: "noop", Arguments: json.RawMessage(`{"x":1}`)},
+				},
+			},
+			{Role: schema.RoleAssistant, Content: "finished"},
+		},
+	}
+
+	reporter := &toolCallRecordingReporter{}
+	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
+	if err := eng.Run(context.Background(), "go", reporter); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(reporter.toolCalls) != 1 {
+		t.Fatalf("tool call count = %d, want 1", len(reporter.toolCalls))
+	}
+	if reporter.toolCalls[0] != "noop" {
+		t.Fatalf("tool call name = %q, want noop", reporter.toolCalls[0])
+	}
+	if len(reporter.args) != 1 || reporter.args[0] != `{"x":1}` {
+		t.Fatalf("tool call args = %#v, want [{\"x\":1}]", reporter.args)
 	}
 }
 
@@ -137,7 +187,7 @@ func TestEnginePropagatesToolResultIntoNextContext(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -171,7 +221,7 @@ func TestEngineThinkingModeCallsProviderTwicePerTurn(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), true)
-	if err := eng.Run(context.Background(), "what?"); err != nil {
+	if err := eng.Run(context.Background(), "what?", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if provider.calls != 2 {
@@ -191,7 +241,7 @@ func TestEngineThinkingPhasePassesNoTools(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), true)
-	if err := eng.Run(context.Background(), "do it"); err != nil {
+	if err := eng.Run(context.Background(), "do it", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -215,7 +265,7 @@ func TestEngineSeedsContextWithSystemAndUserMessages(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "user-prompt-123"); err != nil {
+	if err := eng.Run(context.Background(), "user-prompt-123", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -236,7 +286,7 @@ func TestEngineSurfacesProviderError(t *testing.T) {
 	registry := tools.NewRegistry()
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	err := eng.Run(context.Background(), "hi")
+	err := eng.Run(context.Background(), "hi", noOpReporter{})
 	if err == nil {
 		t.Fatal("expected error to bubble up from provider")
 	}
@@ -260,7 +310,7 @@ func TestEnginePropagatesToolErrorFlagToNextContext(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -312,7 +362,7 @@ func TestEngineStopsAtMaxTurns(t *testing.T) {
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
 	eng.MaxTurns = 3
 
-	err := eng.Run(context.Background(), "loop forever")
+	err := eng.Run(context.Background(), "loop forever", noOpReporter{})
 	if err == nil {
 		t.Fatal("expected MaxTurns error, got nil")
 	}
@@ -342,7 +392,7 @@ func TestEngineHonorsContextCancellation(t *testing.T) {
 	cancel() // already cancelled before Run starts
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	err := eng.Run(ctx, "go")
+	err := eng.Run(ctx, "go", noOpReporter{})
 	if err == nil {
 		t.Fatal("expected ctx error, got nil")
 	}
@@ -372,7 +422,7 @@ func TestEngineExecutesAllParallelToolCalls(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 

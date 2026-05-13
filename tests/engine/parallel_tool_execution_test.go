@@ -119,7 +119,7 @@ func TestEngineRunsParallelSafeToolsConcurrently(t *testing.T) {
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
 	start := time.Now()
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	elapsed := time.Since(start)
@@ -158,7 +158,7 @@ func TestEnginePreservesObservationOrderWhenParallelToolsFinishOutOfOrder(t *tes
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -189,7 +189,7 @@ func TestEngineRunsSerialToolsOneAtATimeInOrder(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestEngineHonorsPerToolMaxConcurrency(t *testing.T) {
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -285,7 +285,7 @@ func TestEngineCancellationDuringParallelGroupDoesNotCallProviderAgain(t *testin
 	}
 
 	eng := engine.NewAgentEngine(provider, registry, t.TempDir(), false)
-	err := eng.Run(ctx, "go")
+	err := eng.Run(ctx, "go", noOpReporter{})
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)

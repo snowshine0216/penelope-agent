@@ -22,7 +22,7 @@ func TestEngineDefaultMaxTurnsWhenZero(t *testing.T) {
 	eng := engine.NewAgentEngine(p, registry, t.TempDir(), false)
 	// MaxTurns left at 0 (struct zero value).
 
-	if err := eng.Run(context.Background(), "hello"); err != nil {
+	if err := eng.Run(context.Background(), "hello", noOpReporter{}); err != nil {
 		t.Fatalf("expected clean exit with default MaxTurns, got: %v", err)
 	}
 }
@@ -40,7 +40,7 @@ func TestEngineThinkingPhaseEmptyContentNotAppendedToHistory(t *testing.T) {
 	registry := tools.NewRegistry()
 	eng := engine.NewAgentEngine(p, registry, t.TempDir(), true)
 
-	if err := eng.Run(context.Background(), "go"); err != nil {
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -61,7 +61,7 @@ func TestEngineThinkPhaseProviderErrorPropagates(t *testing.T) {
 	registry := tools.NewRegistry()
 	eng := engine.NewAgentEngine(p, registry, t.TempDir(), true)
 
-	err := eng.Run(context.Background(), "go")
+	err := eng.Run(context.Background(), "go", noOpReporter{})
 	if err == nil {
 		t.Fatal("expected error from think phase failure, got nil")
 	}

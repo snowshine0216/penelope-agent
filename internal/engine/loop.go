@@ -44,7 +44,7 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 const defaultMaxTurns = 25
 
 // Run starts the agent loop with the given user prompt and returns an error if the context is cancelled or MaxTurns is exceeded.
-func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
+func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporter) error {
 	log.Printf("[engine] starting, workdir=%s thinking=%v", e.WorkDir, e.EnableThinking)
 
 	maxTurns := e.MaxTurns
@@ -87,7 +87,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 			// Append the model's thinking trace to context as an assistant message.
 			if thinkResp.Content != "" {
-				fmt.Printf("[think] %s\n", thinkResp.Content)
+				report.OnThinking(ctx)
 				contextHistory = append(contextHistory, *thinkResp)
 			}
 		}
@@ -104,7 +104,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		contextHistory = append(contextHistory, *actionResp)
 
 		if actionResp.Content != "" {
-			fmt.Printf("[reply] %s\n", actionResp.Content)
+			report.OnMessage(ctx, actionResp.Content)
 		}
 
 		if len(actionResp.ToolCalls) == 0 {
@@ -120,9 +120,17 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 				return err
 			}
 
+			for _, call := range group {
+				report.OnToolCall(ctx, call.Name, string(call.Arguments))
+			}
+
 			results, err := executeToolCallGroup(ctx, e.registry, group, e.toolGroupLimit(group))
 			if err != nil {
 				return err
+			}
+
+			for i, result := range results {
+				report.OnToolResult(ctx, group[i].Name, result.Output, result.IsError)
 			}
 
 			contextHistory = appendToolResultMessages(contextHistory, results)
