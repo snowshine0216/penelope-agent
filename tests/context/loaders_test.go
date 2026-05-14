@@ -3,6 +3,7 @@ package context_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
@@ -118,5 +119,101 @@ func TestLoadSkillBodyRejectsSymlinkEscape(t *testing.T) {
 	}
 	if len(catalog.Skills) != 0 {
 		t.Fatalf("escaped skill was cataloged: %#v", catalog.Skills)
+	}
+}
+
+func TestLoadRootAgentsSkipsDirectoryNamedAgentsMd(t *testing.T) {
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, "AGENTS.md"), 0o755); err != nil {
+		t.Fatalf("mkdir AGENTS.md: %v", err)
+	}
+	got, err := agentcontext.LoadRootAgents(work)
+	if err != nil {
+		t.Fatalf("LoadRootAgents: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("directory AGENTS.md should return empty, got %q", got)
+	}
+}
+
+func TestLoadSkillCatalogMissingSkillsDirReturnsEmpty(t *testing.T) {
+	work := t.TempDir()
+	catalog, err := agentcontext.LoadSkillCatalog(work)
+	if err != nil {
+		t.Fatalf("LoadSkillCatalog: %v", err)
+	}
+	if len(catalog.Skills) != 0 || len(catalog.Skipped) != 0 {
+		t.Fatalf("expected empty catalog for missing .claw/skills, got %#v", catalog)
+	}
+}
+
+func TestLoadSkillBodyRejectsEmptyRelPath(t *testing.T) {
+	work := t.TempDir()
+	meta := agentcontext.SkillMeta{Name: "test", RelPath: ""}
+	_, err := agentcontext.LoadSkillBody(work, meta)
+	if err == nil {
+		t.Fatal("expected error for empty RelPath")
+	}
+	if !strings.Contains(err.Error(), "missing relative path") {
+		t.Fatalf("error = %v, want missing relative path", err)
+	}
+}
+
+func TestLoadSkillBodyRejectsPathEscape(t *testing.T) {
+	work := t.TempDir()
+	meta := agentcontext.SkillMeta{Name: "evil", RelPath: "../../../etc/passwd"}
+	_, err := agentcontext.LoadSkillBody(work, meta)
+	if err == nil {
+		t.Fatal("expected error for path escape")
+	}
+	if !strings.Contains(err.Error(), "escapes workdir") {
+		t.Fatalf("error = %v, want escapes workdir", err)
+	}
+}
+
+func TestLoadSkillBodyMissingFileReturnsError(t *testing.T) {
+	// Use the real path (macOS t.TempDir may return a symlinked /var/folders path;
+	// isWithinWorkDir resolves workDir symlinks but cannot resolve non-existent paths).
+	rawWork := t.TempDir()
+	work, err := filepath.EvalSymlinks(rawWork)
+	if err != nil {
+		work = rawWork
+	}
+	if err := os.MkdirAll(filepath.Join(work, ".claw", "skills", "missing"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	meta := agentcontext.SkillMeta{Name: "missing", RelPath: ".claw/skills/missing/SKILL.md"}
+	_, loadErr := agentcontext.LoadSkillBody(work, meta)
+	if loadErr == nil {
+		t.Fatal("expected error for missing SKILL.md")
+	}
+	if !strings.Contains(loadErr.Error(), "read skill") {
+		t.Fatalf("error = %v, want read skill error", loadErr)
+	}
+}
+
+func TestLoadSkillBodyInvalidFrontmatterReturnsError(t *testing.T) {
+	work := t.TempDir()
+	writeFile(t, filepath.Join(work, ".claw", "skills", "bad", "SKILL.md"), "# no frontmatter\n")
+	meta := agentcontext.SkillMeta{Name: "bad", RelPath: ".claw/skills/bad/SKILL.md"}
+	_, err := agentcontext.LoadSkillBody(work, meta)
+	if err == nil {
+		t.Fatal("expected error for invalid frontmatter")
+	}
+	if !strings.Contains(err.Error(), "parse skill") {
+		t.Fatalf("error = %v, want parse skill error", err)
+	}
+}
+
+func TestLoadSkillBodyRejectsChangedName(t *testing.T) {
+	work := t.TempDir()
+	writeFile(t, filepath.Join(work, ".claw", "skills", "original", "SKILL.md"), "---\nname: different\ndescription: Changed.\n---\n# Body\n")
+	meta := agentcontext.SkillMeta{Name: "original", RelPath: ".claw/skills/original/SKILL.md"}
+	_, err := agentcontext.LoadSkillBody(work, meta)
+	if err == nil {
+		t.Fatal("expected error for changed name")
+	}
+	if !strings.Contains(err.Error(), "changed name") {
+		t.Fatalf("error = %v, want changed name error", err)
 	}
 }

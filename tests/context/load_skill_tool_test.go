@@ -118,3 +118,91 @@ func TestLoadSkillToolDefinitionAndPolicy(t *testing.T) {
 		t.Fatalf("definition name = %q", def.Name)
 	}
 }
+
+func TestManagerNilReceiverSystemPromptReturnsDefault(t *testing.T) {
+	var m *agentcontext.Manager
+	got := m.SystemPrompt()
+	if got == "" {
+		t.Fatal("nil manager SystemPrompt should return DefaultBaseInstructions, got empty")
+	}
+}
+
+func TestManagerNilReceiverHasSkillsReturnsFalse(t *testing.T) {
+	var m *agentcontext.Manager
+	if m.HasSkills() {
+		t.Fatal("nil manager HasSkills should return false")
+	}
+}
+
+func TestManagerNilReceiverAvailableSkillNamesReturnsNil(t *testing.T) {
+	var m *agentcontext.Manager
+	if names := m.AvailableSkillNames(); names != nil {
+		t.Fatalf("nil manager AvailableSkillNames should return nil, got %v", names)
+	}
+}
+
+func TestManagerNilReceiverLoadSkillReturnsError(t *testing.T) {
+	var m *agentcontext.Manager
+	_, err := m.LoadSkill("investigate")
+	if err == nil {
+		t.Fatal("nil manager LoadSkill should return error")
+	}
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("error = %v, want not configured", err)
+	}
+}
+
+func TestManagerHasSkillsReturnsFalseWhenNoSkills(t *testing.T) {
+	work := t.TempDir()
+	manager, err := agentcontext.NewManager(work)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if manager.HasSkills() {
+		t.Fatal("manager with no .claw/skills should return HasSkills=false")
+	}
+}
+
+func TestManagerHasSkillsReturnsTrueWhenSkillsPresent(t *testing.T) {
+	work := t.TempDir()
+	writeFile(t, filepath.Join(work, ".claw", "skills", "investigate", "SKILL.md"),
+		"---\nname: investigate\ndescription: Debug.\n---\n# Investigate\n")
+	manager, err := agentcontext.NewManager(work)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if !manager.HasSkills() {
+		t.Fatal("manager with skills should return HasSkills=true")
+	}
+}
+
+func TestManagerLoadSkillRejectsEmptyName(t *testing.T) {
+	work := t.TempDir()
+	manager, err := agentcontext.NewManager(work)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	_, err = manager.LoadSkill("   ")
+	if err == nil {
+		t.Fatal("expected error for blank skill name")
+	}
+	if !strings.Contains(err.Error(), "required") {
+		t.Fatalf("error = %v, want required", err)
+	}
+}
+
+func TestLoadSkillToolExecuteWithMalformedJSONReturnsError(t *testing.T) {
+	work := t.TempDir()
+	writeFile(t, filepath.Join(work, ".claw", "skills", "investigate", "SKILL.md"),
+		"---\nname: investigate\ndescription: Debug.\n---\n# Investigate\n")
+	manager, err := agentcontext.NewManager(work)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	tool := agentcontext.NewLoadSkillTool(manager)
+
+	_, execErr := tool.Execute(context.Background(), json.RawMessage(`{not-valid-json}`))
+	if execErr == nil {
+		t.Fatal("expected error for malformed JSON args")
+	}
+}
