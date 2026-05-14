@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.0.0] - 2026-05-14
+
+### Added
+- **Dynamic context loading**: the engine reads `AGENTS.md` from the working
+  directory at startup and composes it into the system prompt as project-level
+  instructions.
+- **Local skill catalog**: skills placed in `.claw/skills/<name>/SKILL.md` are
+  discovered at startup and advertised to the model in the system prompt via a
+  `## Local Skills` section with name, description, and optional aliases.
+- **`load_skill` tool**: a new serial-only tool the model can call to promote a
+  local skill body into the system prompt of the next turn. The engine enforces a
+  loader barrier so `load_skill` is executed alone before any parallel tool group.
+- `internal/context` package (`agentcontext`): pure functions for frontmatter
+  parsing, filesystem loading, immutable prompt composition, and a `Manager`
+  that owns context state for a run.
+- `Manager` is goroutine-safe: `LoadSkill` and `SystemPrompt` are protected by
+  a `sync.Mutex`.
+
+### Fixed
+- `AGENTS.md` symlinks are now rejected via `os.Lstat` to prevent arbitrary file
+  injection into the LLM context window.
+- `SKILL.md` file symlinks inside skill directories are now detected and skipped
+  before reading.
+- Skill `name`, `description`, and `aliases` fields are validated to reject
+  embedded newlines, preventing markdown injection into the system prompt.
+- In-workdir symlinks under `.claw/skills/` are now recorded in `SkillCatalog.Skipped`
+  rather than silently dropped.
+- `server.go`: removed undefined `user` variable from placeholder stub.
+
 ## [0.4.0.0] - 2026-05-13
 
 ### Added
