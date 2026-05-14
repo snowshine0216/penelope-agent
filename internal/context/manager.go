@@ -72,12 +72,16 @@ func (m *Manager) LoadSkill(name string) (string, error) {
 		return "", fmt.Errorf("skill name is required")
 	}
 
+	// Build the available-names list before acquiring the lock to avoid
+	// a latent deadlock if AvailableSkillNames is ever made lock-guarded.
+	availableNames := strings.Join(m.AvailableSkillNames(), ", ")
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	meta, ok := m.byName[trimmedName]
 	if !ok {
-		return "", fmt.Errorf("unknown local skill %q (available: %s)", trimmedName, strings.Join(m.AvailableSkillNames(), ", "))
+		return "", fmt.Errorf("unknown local skill %q (available: %s)", trimmedName, availableNames)
 	}
 	if m.composer.HasLoadedSkill(trimmedName) {
 		return fmt.Sprintf("skill %q already loaded", trimmedName), nil

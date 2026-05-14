@@ -47,6 +47,19 @@ func ParseSkillDocument(content string) (SkillDocument, error) {
 	if meta.Description == "" {
 		return SkillDocument{}, fmt.Errorf("skill frontmatter missing description")
 	}
+	// Reject newlines in name, description, and aliases to prevent markdown
+	// injection into the system prompt via YAML multiline scalars.
+	if strings.ContainsAny(meta.Name, "\n\r") {
+		return SkillDocument{}, fmt.Errorf("skill name must not contain newlines")
+	}
+	if strings.ContainsAny(meta.Description, "\n\r") {
+		return SkillDocument{}, fmt.Errorf("skill description must not contain newlines")
+	}
+	for _, alias := range meta.Aliases {
+		if strings.ContainsAny(alias, "\n\r") {
+			return SkillDocument{}, fmt.Errorf("skill alias must not contain newlines")
+		}
+	}
 
 	return SkillDocument{Meta: meta, Body: body}, nil
 }

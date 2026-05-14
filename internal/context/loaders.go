@@ -25,12 +25,16 @@ type LoadedSkill struct {
 
 func LoadRootAgents(workDir string) (string, error) {
 	path := filepath.Join(workDir, "AGENTS.md")
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("stat AGENTS.md: %w", err)
+	}
+	// Reject symlinks to prevent arbitrary file injection into the system prompt.
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", nil
 	}
 	if info.IsDir() {
 		return "", nil
@@ -72,6 +76,13 @@ func LoadSkillCatalog(workDir string) (SkillCatalog, error) {
 		}
 
 		if !entry.IsDir() {
+			continue
+		}
+
+		// Guard against SKILL.md being a symlink to an external file.
+		skillFileInfo, lstatErr := os.Lstat(fullPath)
+		if lstatErr == nil && skillFileInfo.Mode()&os.ModeSymlink != 0 {
+			catalog.Skipped = append(catalog.Skipped, SkillSkip{RelPath: relPath, Reason: "SKILL.md is a symlink"})
 			continue
 		}
 
