@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
@@ -428,5 +432,45 @@ func TestEngineExecutesAllParallelToolCalls(t *testing.T) {
 
 	if a.callCount != 1 || b.callCount != 1 {
 		t.Fatalf("expected each tool called once, got a=%d b=%d", a.callCount, b.callCount)
+	}
+}
+
+func TestEngineSeedsContextFromContextManager(t *testing.T) {
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "AGENTS.md"), []byte("Project-specific rules."), 0o644); err != nil {
+		t.Fatalf("write AGENTS: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, ".claw", "skills", "investigate"), 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".claw", "skills", "investigate", "SKILL.md"), []byte("---\nname: investigate\ndescription: Debug deeply.\n---\n# Investigate Body\n"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	manager, err := agentcontext.NewManager(work)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	registry := tools.NewRegistry()
+	provider := &fakeProvider{responses: []schema.Message{{Role: schema.RoleAssistant, Content: "ok"}}}
+	eng := engine.NewAgentEngine(provider, registry, work, false)
+	eng.SetContextManager(manager)
+
+	if err := eng.Run(context.Background(), "hello", noOpReporter{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	system := provider.receivedMsgs[0][0]
+	if system.Role != schema.RoleSystem {
+		t.Fatalf("first role = %q, want system", system.Role)
+	}
+	if !strings.Contains(system.Content, "Project-specific rules.") {
+		t.Fatalf("system prompt missing AGENTS:\n%s", system.Content)
+	}
+	if !strings.Contains(system.Content, "name: investigate") {
+		t.Fatalf("system prompt missing skill catalog:\n%s", system.Content)
+	}
+	if strings.Contains(system.Content, "# Investigate Body") {
+		t.Fatalf("system prompt loaded body too early:\n%s", system.Content)
 	}
 }

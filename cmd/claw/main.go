@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 
+	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
@@ -56,7 +57,16 @@ func main() {
 	registry.Register(tools.NewEditFileTool(cwd))
 	registry.Register(tools.NewBashTool(cwd))
 
+	contextManager, err := agentcontext.NewManager(cwd)
+	if err != nil {
+		log.Fatalf("init context: %v", err)
+	}
+	if contextManager.HasSkills() {
+		registry.Register(agentcontext.NewLoadSkillTool(contextManager))
+	}
+
 	eng := engine.NewAgentEngine(llm, registry, cwd, *think)
+	eng.SetContextManager(contextManager)
 	eng.MaxTurns = *maxTurns
 	reporter := engine.NewTerminalReporter()
 

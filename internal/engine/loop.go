@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
@@ -29,6 +30,8 @@ type AgentEngine struct {
 	// MaxParallelToolCalls caps concurrently executing parallel-safe tools.
 	// 0 means use the default (4).
 	MaxParallelToolCalls int
+
+	contextManager *agentcontext.Manager
 }
 
 // NewAgentEngine constructs an AgentEngine with the given provider, registry, and work directory.
@@ -39,6 +42,11 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 		WorkDir:        workDir,
 		EnableThinking: enableThinking,
 	}
+}
+
+// SetContextManager attaches a context manager that provides the system prompt.
+func (e *AgentEngine) SetContextManager(manager *agentcontext.Manager) {
+	e.contextManager = manager
 }
 
 const defaultMaxTurns = 25
@@ -55,7 +63,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 	contextHistory := []schema.Message{
 		{
 			Role:    schema.RoleSystem,
-			Content: "You are penelope-agent, an expert coding assistant. You have full access to tools in the workspace.",
+			Content: e.systemPrompt(),
 		},
 		{
 			Role:    schema.RoleUser,
@@ -138,6 +146,13 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 	}
 
 	return nil
+}
+
+func (e *AgentEngine) systemPrompt() string {
+	if e.contextManager == nil {
+		return agentcontext.DefaultBaseInstructions
+	}
+	return e.contextManager.SystemPrompt()
 }
 
 func (e *AgentEngine) toolGroupLimit(group []schema.ToolCall) int {
