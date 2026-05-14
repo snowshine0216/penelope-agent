@@ -132,6 +132,9 @@ surface only, which keeps the public API intentional.
 - The engine has no automatic retry for provider failures.
 - Only OpenAI-compatible (Zhipu / MiniMax) and Anthropic API endpoints
   are supported. No Gemini, no local model adapters yet.
+- Symlinks inside `.claw/skills/` are not followed. A skill directory
+  that is itself a symlink, or whose `SKILL.md` is a symlink, is silently
+  skipped and will not appear in the catalog or be loadable via `load_skill`.
 
 ## License
 

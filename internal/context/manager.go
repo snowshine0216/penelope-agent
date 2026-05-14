@@ -76,20 +76,24 @@ func (m *Manager) LoadSkill(name string) (string, error) {
 	// a latent deadlock if AvailableSkillNames is ever made lock-guarded.
 	availableNames := strings.Join(m.AvailableSkillNames(), ", ")
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	// m.byName is written only during NewManager; reading without a lock is safe.
 	meta, ok := m.byName[trimmedName]
 	if !ok {
 		return "", fmt.Errorf("unknown local skill %q (available: %s)", trimmedName, availableNames)
 	}
-	if m.composer.HasLoadedSkill(trimmedName) {
-		return fmt.Sprintf("skill %q already loaded", trimmedName), nil
-	}
 
+	// Perform filesystem I/O before acquiring the lock so that concurrent
+	// SystemPrompt() callers are not blocked during disk reads.
 	loaded, err := LoadSkillBody(m.workDir, meta)
 	if err != nil {
 		return "", err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.composer.HasLoadedSkill(trimmedName) {
+		return fmt.Sprintf("skill %q already loaded", trimmedName), nil
 	}
 	m.composer = m.composer.WithLoadedSkill(loaded)
 	return fmt.Sprintf("loaded skill %q", trimmedName), nil

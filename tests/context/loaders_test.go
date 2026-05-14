@@ -187,8 +187,9 @@ func TestLoadSkillBodyMissingFileReturnsError(t *testing.T) {
 	if loadErr == nil {
 		t.Fatal("expected error for missing SKILL.md")
 	}
-	if !strings.Contains(loadErr.Error(), "read skill") {
-		t.Fatalf("error = %v, want read skill error", loadErr)
+	// Lstat now fires before ReadFile; missing file produces a "stat skill" error.
+	if !strings.Contains(loadErr.Error(), "stat skill") && !strings.Contains(loadErr.Error(), "read skill") {
+		t.Fatalf("error = %v, want stat skill or read skill error", loadErr)
 	}
 }
 

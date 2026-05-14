@@ -39,6 +39,9 @@ func (t *LoadSkillTool) Definition() schema.ToolDefinition {
 	}
 }
 
+// ExecutionPolicy is declared serial for documentation purposes. In practice the
+// engine intercepts load_skill via hasLoadSkillCall before PlanToolCallGroups and
+// never consults this policy.
 func (t *LoadSkillTool) ExecutionPolicy() tools.ExecutionPolicy {
 	return tools.ExecutionPolicy{}
 }

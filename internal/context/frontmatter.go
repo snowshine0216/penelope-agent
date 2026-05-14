@@ -71,14 +71,15 @@ func splitFrontmatter(content string) (string, string, error) {
 	}
 
 	rest := strings.TrimPrefix(normalized, "---\n")
-	end := strings.Index(rest, "\n---")
+	// Match "\n---\n" rather than "\n---" so that a YAML multiline scalar
+	// containing "\n---" as an interior line does not cause early truncation.
+	end := strings.Index(rest, "\n---\n")
 	if end < 0 {
 		return "", "", fmt.Errorf("skill document missing closing frontmatter delimiter")
 	}
 
 	frontmatter := rest[:end]
-	body := rest[end+len("\n---"):]
-	body = strings.TrimPrefix(body, "\n")
+	body := rest[end+len("\n---\n"):]
 	return frontmatter, body, nil
 }
 

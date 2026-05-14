@@ -119,6 +119,16 @@ func LoadSkillBody(workDir string, meta SkillMeta) (LoadedSkill, error) {
 		return LoadedSkill{}, fmt.Errorf("skill %q path escapes workdir", meta.Name)
 	}
 
+	// Reject symlinks to prevent TOCTOU injection: a file valid at catalog time
+	// could be swapped for a symlink before LoadSkillBody is called.
+	fileInfo, lstatErr := os.Lstat(fullPath)
+	if lstatErr != nil {
+		return LoadedSkill{}, fmt.Errorf("stat skill %q: %w", meta.Name, lstatErr)
+	}
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		return LoadedSkill{}, fmt.Errorf("skill %q SKILL.md is a symlink", meta.Name)
+	}
+
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		return LoadedSkill{}, fmt.Errorf("read skill %q: %w", meta.Name, err)
