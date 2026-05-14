@@ -474,3 +474,36 @@ func TestEngineSeedsContextFromContextManager(t *testing.T) {
 		t.Fatalf("system prompt loaded body too early:\n%s", system.Content)
 	}
 }
+
+func TestEnginePromotesLoadedSkillIntoNextSystemPrompt(t *testing.T) {
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".claw", "skills", "investigate"), 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".claw", "skills", "investigate", "SKILL.md"), []byte("---\nname: investigate\ndescription: Debug deeply.\n---\n# Investigate Body\n\nUse root-cause analysis.\n"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	manager, err := agentcontext.NewManager(work)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	registry := tools.NewRegistry()
+	registry.Register(agentcontext.NewLoadSkillTool(manager))
+	provider := &fakeProvider{responses: []schema.Message{
+		{Role: schema.RoleAssistant, ToolCalls: []schema.ToolCall{{ID: "load-1", Name: agentcontext.LoadSkillToolName, Arguments: json.RawMessage(`{"name":"investigate"}`)}}},
+		{Role: schema.RoleAssistant, Content: "done"},
+	}}
+	eng := engine.NewAgentEngine(provider, registry, work, false)
+	eng.SetContextManager(manager)
+
+	if err := eng.Run(context.Background(), "debug this", noOpReporter{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if strings.Contains(provider.receivedMsgs[0][0].Content, "# Investigate Body") {
+		t.Fatalf("first call loaded body too early:\n%s", provider.receivedMsgs[0][0].Content)
+	}
+	if !strings.Contains(provider.receivedMsgs[1][0].Content, "# Investigate Body") {
+		t.Fatalf("second call missing loaded body:\n%s", provider.receivedMsgs[1][0].Content)
+	}
+}
