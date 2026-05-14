@@ -15,6 +15,18 @@ Given a prompt, the agent:
 5. Loops on tool results until the model stops asking for tools or
    `--max-turns` is hit.
 
+## Dynamic context
+
+At startup, `claw` composes the system prompt from:
+
+1. The built-in `penelope-agent` operating instructions.
+2. `${workdir}/AGENTS.md`, when present.
+3. Frontmatter from local skills under `${workdir}/.claw/skills/*/SKILL.md`.
+4. Full local skill bodies loaded later through the internal `load_skill` tool.
+
+Only root `${workdir}/AGENTS.md` is loaded. Parent, nested, and global
+instruction files are ignored in this version.
+
 ## Quickstart
 
 ```bash
@@ -61,6 +73,7 @@ upward from the current directory.
 | `read_file` | Read a file in the workdir | Path traversal blocked. Optional `offset`/`limit` for line pagination. |
 | `write_file` | Write a file in the workdir | Path traversal blocked. Creates parent dirs. |
 | `edit_file` | Apply string replacements to an existing file via fuzzy match (CRLF, whitespace, indentation). Multi-edit atomic; uniqueness enforced. | Path traversal blocked. Refuses non-existent files. |
+| `load_skill` | Load full instructions for a relevant local skill listed in `.claw/skills` | Local skills only. Serial-only; acts as a turn barrier before normal tool work continues. |
 
 Tool calls requested in the same assistant message are executed in
 ordered groups. `read_file` opts into parallel execution; `bash`,
@@ -68,11 +81,38 @@ ordered groups. `read_file` opts into parallel execution; `bash`,
 are appended to model history in the original request order, not
 completion order.
 
+## Local skills
+
+Local skills live under the workdir:
+
+```text
+.claw/skills/my-skill/
+  SKILL.md
+  scripts/
+  references/
+  assets/
+```
+
+`SKILL.md` must start with YAML frontmatter:
+
+```yaml
+---
+name: my-skill
+description: One sentence explaining when to use it.
+---
+```
+
+The initial prompt includes only `name`, `description`, and optional aliases.
+When the model decides a skill is relevant, it calls `load_skill` with the exact
+skill name. The engine then inserts that skill's markdown body into the system
+prompt for subsequent model calls.
+
 ## Project layout
 
 ```
 cmd/claw/         CLI entry point
 internal/
+  context/        dynamic system prompt composition and local skill lazy loading
   engine/         agent loop (thinking + action phases, turn cap, ctx cancel)
   provider/       LLM provider interface, Claude + OpenAI/Zhipu adapters
   schema/         shared message types
@@ -92,6 +132,9 @@ surface only, which keeps the public API intentional.
 - The engine has no automatic retry for provider failures.
 - Only OpenAI-compatible (Zhipu / MiniMax) and Anthropic API endpoints
   are supported. No Gemini, no local model adapters yet.
+- Symlinks inside `.claw/skills/` are not followed. A skill directory
+  that is itself a symlink, or whose `SKILL.md` is a symlink, is silently
+  skipped and will not appear in the catalog or be loadable via `load_skill`.
 
 ## License
 

@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
@@ -292,5 +296,51 @@ func TestEngineCancellationDuringParallelGroupDoesNotCallProviderAgain(t *testin
 	}
 	if provider.calls != 1 {
 		t.Fatalf("provider.calls = %d, want 1", provider.calls)
+	}
+}
+
+func TestEngineDefersNormalToolsWhenLoadSkillIsRequested(t *testing.T) {
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".claw", "skills", "investigate"), 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".claw", "skills", "investigate", "SKILL.md"), []byte("---\nname: investigate\ndescription: Debug deeply.\n---\n# Investigate Body\n"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	manager, err := agentcontext.NewManager(work)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	normal := &recordingTool{name: "normal", output: "normal-output"}
+	registry := tools.NewRegistry()
+	registry.Register(agentcontext.NewLoadSkillTool(manager))
+	registry.Register(normal)
+
+	provider := &fakeProvider{responses: []schema.Message{
+		{Role: schema.RoleAssistant, ToolCalls: []schema.ToolCall{
+			{ID: "load", Name: agentcontext.LoadSkillToolName, Arguments: json.RawMessage(`{"name":"investigate"}`)},
+			{ID: "normal", Name: "normal", Arguments: json.RawMessage(`{}`)},
+		}},
+		{Role: schema.RoleAssistant, Content: "done"},
+	}}
+	eng := engine.NewAgentEngine(provider, registry, work, false)
+	eng.SetContextManager(manager)
+
+	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if normal.callCount != 0 {
+		t.Fatalf("normal tool executed before loaded skill context, callCount=%d", normal.callCount)
+	}
+	second := provider.receivedMsgs[1]
+	var normalObservation string
+	for _, msg := range second {
+		if msg.Role == schema.RoleTool && msg.ToolCallID == "normal" {
+			normalObservation = msg.Content
+		}
+	}
+	if !strings.Contains(normalObservation, "deferred until after skill loading") {
+		t.Fatalf("normal deferral observation = %q", normalObservation)
 	}
 }

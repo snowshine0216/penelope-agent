@@ -34,6 +34,10 @@
 **Description:** `ResolveInWorkDir` validates symlinks at check-time via `filepath.EvalSymlinks`, but `os.ReadFile` at `edit_file.go:103` follows symlinks again at act-time. A local attacker with workspace write access could swap the target between the two calls, causing `edit_file` to read content from outside the workDir. The write path is safe (os.Rename replaces directory entries, does not follow symlinks). Fix: open the file with `O_NOFOLLOW` using `syscall.Open` then read via the returned fd, or re-run `filepath.EvalSymlinks` after the read and error if the path changed.
 **Also:** `atomic_write.go:21` uses `os.Stat` (follows symlinks) to read file permissions; replace with `os.Lstat` to get permissions without following symlinks.
 
+### Symlinks in `.claw/skills/` are not followed
+**Priority:** P3
+**Description:** Skill directories that are symlinks and `SKILL.md` files that are symlinks are rejected at catalog-load time (and again at body-load time) to prevent arbitrary file injection into the LLM system prompt. This means skill libraries shared via symlink (e.g. `ln -s ~/shared-skills .claw/skills/my-skill`) do not work. A future improvement could allow opt-in symlink following when the resolved target is still within a user-approved path list.
+
 ## Completed
 
 <!-- Items completed in v0.1.0.0 are tracked in CHANGELOG.md -->

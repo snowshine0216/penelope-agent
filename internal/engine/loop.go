@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
@@ -29,6 +30,8 @@ type AgentEngine struct {
 	// MaxParallelToolCalls caps concurrently executing parallel-safe tools.
 	// 0 means use the default (4).
 	MaxParallelToolCalls int
+
+	contextManager *agentcontext.Manager
 }
 
 // NewAgentEngine constructs an AgentEngine with the given provider, registry, and work directory.
@@ -39,6 +42,11 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 		WorkDir:        workDir,
 		EnableThinking: enableThinking,
 	}
+}
+
+// SetContextManager attaches a context manager that provides the system prompt.
+func (e *AgentEngine) SetContextManager(manager *agentcontext.Manager) {
+	e.contextManager = manager
 }
 
 const defaultMaxTurns = 25
@@ -55,7 +63,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 	contextHistory := []schema.Message{
 		{
 			Role:    schema.RoleSystem,
-			Content: "You are penelope-agent, an expert coding assistant. You have full access to tools in the workspace.",
+			Content: e.systemPrompt(),
 		},
 		{
 			Role:    schema.RoleUser,
@@ -114,6 +122,16 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 
 		log.Printf("[engine] tool calls requested: %d", len(actionResp.ToolCalls))
 
+		if hasLoadSkillCall(actionResp.ToolCalls) {
+			results, err := e.executeLoadSkillBarrier(ctx, actionResp.ToolCalls, report)
+			if err != nil {
+				return err
+			}
+			contextHistory = appendToolResultMessages(contextHistory, results)
+			contextHistory = e.refreshSystemPrompt(contextHistory)
+			continue
+		}
+
 		groups := PlanToolCallGroups(actionResp.ToolCalls, e.registry.ExecutionPolicyFor)
 		for _, group := range groups {
 			if err := ctx.Err(); err != nil {
@@ -138,6 +156,57 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 	}
 
 	return nil
+}
+
+func (e *AgentEngine) systemPrompt() string {
+	if e.contextManager == nil {
+		return agentcontext.DefaultBaseInstructions
+	}
+	return e.contextManager.SystemPrompt()
+}
+
+func hasLoadSkillCall(calls []schema.ToolCall) bool {
+	for _, call := range calls {
+		if call.Name == agentcontext.LoadSkillToolName {
+			return true
+		}
+	}
+	return false
+}
+
+func deferToolResult(call schema.ToolCall) schema.ToolResult {
+	return schema.ToolResult{
+		ToolCallID: call.ID,
+		Output:     fmt.Sprintf("tool %q deferred until after skill loading; request it again if still needed", call.Name),
+		IsError:    false,
+	}
+}
+
+func (e *AgentEngine) refreshSystemPrompt(history []schema.Message) []schema.Message {
+	if len(history) == 0 || history[0].Role != schema.RoleSystem {
+		return history
+	}
+	out := append([]schema.Message(nil), history...)
+	out[0].Content = e.systemPrompt()
+	return out
+}
+
+func (e *AgentEngine) executeLoadSkillBarrier(ctx context.Context, calls []schema.ToolCall, report Reporter) ([]schema.ToolResult, error) {
+	results := make([]schema.ToolResult, len(calls))
+	for i, call := range calls {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if call.Name != agentcontext.LoadSkillToolName {
+			results[i] = deferToolResult(call)
+			continue
+		}
+		report.OnToolCall(ctx, call.Name, string(call.Arguments))
+		result := executeToolCall(ctx, e.registry, call)
+		report.OnToolResult(ctx, call.Name, result.Output, result.IsError)
+		results[i] = result
+	}
+	return results, nil
 }
 
 func (e *AgentEngine) toolGroupLimit(group []schema.ToolCall) int {
