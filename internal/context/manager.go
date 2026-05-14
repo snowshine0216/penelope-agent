@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type Manager struct {
+	mu       sync.Mutex
 	workDir  string
 	catalog  SkillCatalog
 	composer Composer
@@ -40,6 +42,8 @@ func (m *Manager) SystemPrompt() string {
 	if m == nil {
 		return DefaultBaseInstructions
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.composer.SystemPrompt()
 }
 
@@ -67,6 +71,10 @@ func (m *Manager) LoadSkill(name string) (string, error) {
 	if trimmedName == "" {
 		return "", fmt.Errorf("skill name is required")
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	meta, ok := m.byName[trimmedName]
 	if !ok {
 		return "", fmt.Errorf("unknown local skill %q (available: %s)", trimmedName, strings.Join(m.AvailableSkillNames(), ", "))

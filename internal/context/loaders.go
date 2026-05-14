@@ -61,10 +61,12 @@ func LoadSkillCatalog(workDir string) (SkillCatalog, error) {
 		relPath := filepath.ToSlash(filepath.Join(".claw", "skills", entry.Name(), "SKILL.md"))
 		fullPath := filepath.Join(workDir, filepath.FromSlash(relPath))
 
-		// Resolve symlinks on the skill directory before any path check.
+		// Skip symlinks entirely; record escaping ones for diagnostics.
 		if entry.Type()&os.ModeSymlink != 0 {
 			if !isWithinWorkDir(workDir, skillDir) {
 				catalog.Skipped = append(catalog.Skipped, SkillSkip{RelPath: relPath, Reason: "path escapes workdir"})
+			} else {
+				catalog.Skipped = append(catalog.Skipped, SkillSkip{RelPath: relPath, Reason: "symlinks are not followed"})
 			}
 			continue
 		}
