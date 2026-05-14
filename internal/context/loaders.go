@@ -26,22 +26,20 @@ type LoadedSkill struct {
 func LoadRootAgents(workDir string) (string, error) {
 	path := filepath.Join(workDir, "AGENTS.md")
 	info, err := os.Stat(path)
-	switch {
-	case err == nil && !info.IsDir():
-		bytes, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return "", fmt.Errorf("read AGENTS.md: %w", readErr)
-		}
-		return string(bytes), nil
-	case err == nil && info.IsDir():
-		return "", nil
-	case os.IsNotExist(err):
-		return "", nil
-	case err != nil:
-		return "", fmt.Errorf("stat AGENTS.md: %w", err)
-	default:
+	if os.IsNotExist(err) {
 		return "", nil
 	}
+	if err != nil {
+		return "", fmt.Errorf("stat AGENTS.md: %w", err)
+	}
+	if info.IsDir() {
+		return "", nil
+	}
+	bytes, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return "", fmt.Errorf("read AGENTS.md: %w", readErr)
+	}
+	return string(bytes), nil
 }
 
 func LoadSkillCatalog(workDir string) (SkillCatalog, error) {
@@ -59,13 +57,19 @@ func LoadSkillCatalog(workDir string) (SkillCatalog, error) {
 	catalog := SkillCatalog{}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
+		skillDir := filepath.Join(root, entry.Name())
 		relPath := filepath.ToSlash(filepath.Join(".claw", "skills", entry.Name(), "SKILL.md"))
 		fullPath := filepath.Join(workDir, filepath.FromSlash(relPath))
-		if !isWithinWorkDir(workDir, fullPath) {
-			catalog.Skipped = append(catalog.Skipped, SkillSkip{RelPath: relPath, Reason: "path escapes workdir"})
+
+		// Resolve symlinks on the skill directory before any path check.
+		if entry.Type()&os.ModeSymlink != 0 {
+			if !isWithinWorkDir(workDir, skillDir) {
+				catalog.Skipped = append(catalog.Skipped, SkillSkip{RelPath: relPath, Reason: "path escapes workdir"})
+			}
+			continue
+		}
+
+		if !entry.IsDir() {
 			continue
 		}
 
