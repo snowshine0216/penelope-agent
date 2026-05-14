@@ -7,8 +7,4 @@ func main() {
     fmt.Println("Server is starting on port 8080...")
 
     // TODO: 增加鉴权逻辑
-    if user == nil {
-        fmt.Println("Forbidden!")
-        return
-    }
 }
