@@ -9,6 +9,7 @@ import (
 	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
+	agentsession "github.com/snowshine0216/penelope-agent/internal/session"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
 
@@ -32,6 +33,8 @@ type AgentEngine struct {
 	MaxParallelToolCalls int
 
 	contextManager *agentcontext.Manager
+	session        *agentsession.Session
+	trimmer        agentsession.Trimmer
 }
 
 // NewAgentEngine constructs an AgentEngine with the given provider, registry, and work directory.
@@ -49,6 +52,22 @@ func (e *AgentEngine) SetContextManager(manager *agentcontext.Manager) {
 	e.contextManager = manager
 }
 
+// SetSession attaches the canonical history store. The engine appends
+// the user prompt, every act-phase assistant message, and every tool
+// result to the session; think-phase responses are intentionally not
+// persisted (spec D17).
+func (e *AgentEngine) SetSession(s *agentsession.Session) {
+	e.session = s
+}
+
+// SetTrimmer attaches a strategy used to bound what the provider sees.
+// If nil, the engine uses an identity trimmer that returns the full
+// session history (matches today's unbounded behavior for tests that
+// don't care).
+func (e *AgentEngine) SetTrimmer(t agentsession.Trimmer) {
+	e.trimmer = t
+}
+
 const defaultMaxTurns = 25
 
 // Run starts the agent loop with the given user prompt and returns an error if the context is cancelled or MaxTurns is exceeded.
@@ -60,17 +79,17 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 		maxTurns = defaultMaxTurns
 	}
 
-	contextHistory := []schema.Message{
-		{
-			Role:    schema.RoleSystem,
-			Content: e.systemPrompt(),
-		},
-		{
-			Role:    schema.RoleUser,
-			Content: userPrompt,
-		},
+	sess := e.session
+	if sess == nil {
+		sess = agentsession.NewInMemory()
+	}
+	if userPrompt != "" {
+		if err := sess.Append(schema.Message{Role: schema.RoleUser, Content: userPrompt}); err != nil {
+			return fmt.Errorf("append user prompt: %w", err)
+		}
 	}
 
+	systemMsg := schema.Message{Role: schema.RoleSystem, Content: e.systemPrompt()}
 	availableTools := e.registry.GetAvailableTools()
 	turnCount := 0
 
@@ -84,32 +103,32 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 		}
 		log.Printf("[engine] turn %d", turnCount)
 
+		view := e.providerView(systemMsg, sess.Messages())
+
 		if e.EnableThinking {
 			log.Println("[engine] phase=think tools=disabled")
-
-			// Think phase: pass nil tools so the model is forced to produce plain-text reasoning.
-			thinkResp, err := e.provider.Generate(ctx, contextHistory, nil)
+			thinkResp, err := e.provider.Generate(ctx, view, nil)
 			if err != nil {
 				return fmt.Errorf("think phase: %w", err)
 			}
-
-			// Append the model's thinking trace to context as an assistant message.
 			if thinkResp.Content != "" {
 				report.OnThinking(ctx)
-				contextHistory = append(contextHistory, *thinkResp)
+				// Spec D17: think-phase responses are NOT persisted to
+				// the session. Carry it forward only inside this turn
+				// so the act-phase call can see the reasoning.
+				view = append(view, *thinkResp)
 			}
 		}
 
 		log.Println("[engine] phase=act tools=enabled")
-
-		// Context history now includes the thinking trace from the previous phase (if any).
-		// The model continues its reasoning and issues precise tool calls.
-		actionResp, err := e.provider.Generate(ctx, contextHistory, availableTools)
+		actionResp, err := e.provider.Generate(ctx, view, availableTools)
 		if err != nil {
 			return fmt.Errorf("act phase: %w", err)
 		}
 
-		contextHistory = append(contextHistory, *actionResp)
+		if err := sess.Append(*actionResp); err != nil {
+			return fmt.Errorf("persist act response: %w", err)
+		}
 
 		if actionResp.Content != "" {
 			report.OnMessage(ctx, actionResp.Content)
@@ -127,8 +146,12 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 			if err != nil {
 				return err
 			}
-			contextHistory = appendToolResultMessages(contextHistory, results)
-			contextHistory = e.refreshSystemPrompt(contextHistory)
+			for _, result := range results {
+				if err := sess.Append(toolResultMessage(result)); err != nil {
+					return fmt.Errorf("persist tool result: %w", err)
+				}
+			}
+			systemMsg.Content = e.systemPrompt()
 			continue
 		}
 
@@ -149,13 +172,45 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 
 			for i, result := range results {
 				report.OnToolResult(ctx, group[i].Name, result.Output, result.IsError)
+				if err := sess.Append(toolResultMessage(result)); err != nil {
+					return fmt.Errorf("persist tool result: %w", err)
+				}
 			}
-
-			contextHistory = appendToolResultMessages(contextHistory, results)
 		}
 	}
 
 	return nil
+}
+
+// providerView composes the slice handed to provider.Generate: the
+// system message at index 0 followed by the trimmed session tail. If
+// the trimmer returns an empty slice (token cap so low that even the
+// latest user turn does not fit) we substitute the last user message
+// so the model still receives a valid prompt.
+func (e *AgentEngine) providerView(systemMsg schema.Message, tail []schema.Message) []schema.Message {
+	var trimmed []schema.Message
+	if e.trimmer != nil {
+		trimmed = e.trimmer.Trim(tail)
+	} else {
+		trimmed = tail
+	}
+	if len(trimmed) == 0 && len(tail) > 0 {
+		log.Printf("[engine] warning: trimmer returned empty slice; applying emergency floor")
+		trimmed = []schema.Message{lastUserMessage(tail)}
+	}
+	view := make([]schema.Message, 0, 1+len(trimmed))
+	view = append(view, systemMsg)
+	view = append(view, trimmed...)
+	return view
+}
+
+func lastUserMessage(tail []schema.Message) schema.Message {
+	for i := len(tail) - 1; i >= 0; i-- {
+		if tail[i].Role == schema.RoleUser {
+			return tail[i]
+		}
+	}
+	return tail[len(tail)-1]
 }
 
 func (e *AgentEngine) systemPrompt() string {
@@ -180,15 +235,6 @@ func deferToolResult(call schema.ToolCall) schema.ToolResult {
 		Output:     fmt.Sprintf("tool %q deferred until after skill loading; request it again if still needed", call.Name),
 		IsError:    false,
 	}
-}
-
-func (e *AgentEngine) refreshSystemPrompt(history []schema.Message) []schema.Message {
-	if len(history) == 0 || history[0].Role != schema.RoleSystem {
-		return history
-	}
-	out := append([]schema.Message(nil), history...)
-	out[0].Content = e.systemPrompt()
-	return out
 }
 
 func (e *AgentEngine) executeLoadSkillBarrier(ctx context.Context, calls []schema.ToolCall, report Reporter) ([]schema.ToolResult, error) {

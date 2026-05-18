@@ -27,6 +27,46 @@ At startup, `claw` composes the system prompt from:
 Only root `${workdir}/AGENTS.md` is loaded. Parent, nested, and global
 instruction files are ignored in this version.
 
+## Sessions
+
+Every `claw` run is recorded as a session in `${workdir}/.claw/sessions/<id>.jsonl`.
+The id is printed to stderr on the first line:
+
+```
+session: 20260518-093045-a1b2c3
+```
+
+Resume a conversation by passing the id back:
+
+```bash
+go run ./cmd/claw --prompt "another question" --session 20260518-093045-a1b2c3
+```
+
+What the model sees each turn is bounded by a trim strategy. The default
+(`window`) keeps the last `--max-context-turns` user turns under a
+`--max-context-tokens` chars/4 estimate, dropping the oldest user turn
+first when either limit is exceeded. Orphan tool messages and dangling
+tool_call/result pairs are removed defensively so the view sent to the
+provider is always valid.
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--session` | (empty) | empty creates a fresh session; passed id resumes |
+| `--sessions-dir` | `${workdir}/.claw/sessions` | override session storage location |
+| `--max-context-turns` | `6` | window depth in user turns |
+| `--max-context-tokens` | `32000` | estimated-token ceiling (chars/4) |
+| `--trim-strategy` | `window` | currently the only built-in strategy |
+
+Concurrent writers to the same session are permitted at the file
+integrity layer via per-append `flock(LOCK_EX)`. Two processes resuming
+the same session simultaneously may interleave their turns in ways the
+trimmer best-effort cleans up; treat "one process per session" as the
+recommended pattern.
+
+Windows note: `flock` is not used on Windows, so concurrent writers on
+that platform are not protected against torn lines. The project is
+POSIX-focused (see the `bash` tool sandboxing notes).
+
 ## Quickstart
 
 ```bash
@@ -135,6 +175,11 @@ surface only, which keeps the public API intentional.
 - Symlinks inside `.claw/skills/` are not followed. A skill directory
   that is itself a symlink, or whose `SKILL.md` is a symlink, is silently
   skipped and will not appear in the catalog or be loadable via `load_skill`.
+- Sessions are append-only JSONL. Long sessions accumulate every message
+  ever appended even though the model only sees the windowed view.
+  A future `claw sessions compact <id>` command could rewrite the file
+  to the windowed view; for now, inspection and pruning happen with
+  `cat`, `head`, and `rm`.
 
 ## License
 
