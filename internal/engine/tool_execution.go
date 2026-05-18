@@ -116,10 +116,3 @@ func toolResultMessage(result schema.ToolResult) schema.Message {
 	}
 }
 
-func appendToolResultMessages(history []schema.Message, results []schema.ToolResult) []schema.Message {
-	out := append([]schema.Message(nil), history...)
-	for _, result := range results {
-		out = append(out, toolResultMessage(result))
-	}
-	return out
-}
