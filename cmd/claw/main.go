@@ -7,10 +7,12 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 
 	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
+	agentsession "github.com/snowshine0216/penelope-agent/internal/session"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
 
@@ -22,6 +24,11 @@ func main() {
 	maxTurns := flag.Int("max-turns", 25, "max engine turns per run")
 	maxTokens := flag.Int("max-tokens", 4096, "max output tokens (claude only)")
 	workDir := flag.String("workdir", "", "workspace root; defaults to cwd")
+	sessionID := flag.String("session", "", "resume the named session; empty creates a fresh one")
+	sessionsDir := flag.String("sessions-dir", "", "directory for session files; defaults to <workdir>/.claw/sessions")
+	maxContextTurns := flag.Int("max-context-turns", 6, "trim window: keep this many recent user turns")
+	maxContextTokens := flag.Int("max-context-tokens", 32000, "trim window: hard ceiling on estimated tokens (chars/4)")
+	trimStrategy := flag.String("trim-strategy", "window", "trim strategy name; v1 ships only 'window'")
 	flag.Parse()
 
 	cwd := *workDir
@@ -65,8 +72,34 @@ func main() {
 		registry.Register(agentcontext.NewLoadSkillTool(contextManager))
 	}
 
+	resolvedSessionsDir := *sessionsDir
+	if resolvedSessionsDir == "" {
+		resolvedSessionsDir = filepath.Join(cwd, ".claw", "sessions")
+	}
+
+	sess, resumed, err := openOrCreateSession(*sessionID, resolvedSessionsDir)
+	if err != nil {
+		log.Fatalf("session: %v", err)
+	}
+	defer sess.Close()
+	if resumed {
+		fmt.Fprintf(os.Stderr, "session: %s (resumed, %d messages)\n", sess.ID(), len(sess.Messages()))
+	} else {
+		fmt.Fprintf(os.Stderr, "session: %s\n", sess.ID())
+	}
+
+	trimmer, err := agentsession.Get(*trimStrategy, agentsession.TrimConfig{
+		MaxUserTurns: *maxContextTurns,
+		MaxTokens:    *maxContextTokens,
+	})
+	if err != nil {
+		log.Fatalf("trim strategy: %v", err)
+	}
+
 	eng := engine.NewAgentEngine(llm, registry, cwd, *think)
 	eng.SetContextManager(contextManager)
+	eng.SetSession(sess)
+	eng.SetTrimmer(trimmer)
 	eng.MaxTurns = *maxTurns
 	reporter := engine.NewTerminalReporter()
 
@@ -99,4 +132,26 @@ func newProvider(name, model string, maxTokens int) (provider.LLMProvider, error
 	default:
 		return nil, fmt.Errorf("unknown provider %q (supported: openai, claude)", name)
 	}
+}
+
+// openOrCreateSession resolves the --session flag into a Session.
+// Empty id creates a fresh session; non-empty id resumes (hard error
+// if the file is missing) and rejects ids that fail format validation
+// to block path traversal at the flag boundary.
+func openOrCreateSession(id string, dir string) (*agentsession.Session, bool, error) {
+	if id == "" {
+		s, err := agentsession.NewSession(dir)
+		if err != nil {
+			return nil, false, err
+		}
+		return s, false, nil
+	}
+	if !agentsession.IsValidID(id) {
+		return nil, false, fmt.Errorf("invalid session id %q (must match YYYYMMDD-HHMMSS-XXXXXX)", id)
+	}
+	s, err := agentsession.OpenSession(id, dir)
+	if err != nil {
+		return nil, false, err
+	}
+	return s, true, nil
 }
