@@ -77,6 +77,17 @@ func main() {
 		resolvedSessionsDir = filepath.Join(cwd, ".claw", "sessions")
 	}
 
+	// Resolve the trimmer before opening the session so an unknown
+	// --trim-strategy fails fast without leaving an empty .jsonl file
+	// behind on disk.
+	trimmer, err := agentsession.Get(*trimStrategy, agentsession.TrimConfig{
+		MaxUserTurns: *maxContextTurns,
+		MaxTokens:    *maxContextTokens,
+	})
+	if err != nil {
+		log.Fatalf("trim strategy: %v", err)
+	}
+
 	sess, resumed, err := openOrCreateSession(*sessionID, resolvedSessionsDir)
 	if err != nil {
 		log.Fatalf("session: %v", err)
@@ -86,14 +97,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "session: %s (resumed, %d messages)\n", sess.ID(), len(sess.Messages()))
 	} else {
 		fmt.Fprintf(os.Stderr, "session: %s\n", sess.ID())
-	}
-
-	trimmer, err := agentsession.Get(*trimStrategy, agentsession.TrimConfig{
-		MaxUserTurns: *maxContextTurns,
-		MaxTokens:    *maxContextTokens,
-	})
-	if err != nil {
-		log.Fatalf("trim strategy: %v", err)
 	}
 
 	eng := engine.NewAgentEngine(llm, registry, cwd, *think)

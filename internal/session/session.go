@@ -13,6 +13,11 @@ import (
 // On disk it is one JSONL file, append-only. Each Append acquires a
 // per-call exclusive flock so concurrent processes serialize at the
 // kernel level (see spec D12).
+//
+// In-process callers must serialize Append/Close themselves OR rely on
+// the per-session mutex below: Append, Close, and Messages all take
+// `mu`, so concurrent goroutines see a consistent disk-then-memory
+// ordering and never race on `s.file`.
 type Session struct {
 	id       string
 	file     *os.File // nil for in-memory sessions (tests)
@@ -32,24 +37,29 @@ func (s *Session) Messages() []schema.Message {
 	return cloneMessages(s.messages)
 }
 
-// Append persists one message and updates the in-memory slice. The
-// on-disk write happens under flock; the in-memory update happens under
-// the per-session mutex.
+// Append persists one message and updates the in-memory slice. Both
+// happen under `s.mu` so two goroutines in the same process can call
+// Append concurrently without the on-disk and in-memory orderings
+// diverging. Cross-process ordering is enforced separately by the
+// per-write flock acquired inside persist().
 func (s *Session) Append(msg schema.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.file != nil {
 		if err := s.persist(msg); err != nil {
 			return err
 		}
 	}
-	s.mu.Lock()
 	s.messages = append(s.messages, msg)
-	s.mu.Unlock()
 	return nil
 }
 
 // Close releases the file handle (and the kernel-held flock with it).
-// Safe to call multiple times.
+// Takes `s.mu` so a concurrent Append is not surprised by `s.file`
+// flipping to nil mid-write. Safe to call multiple times.
 func (s *Session) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.file == nil {
 		return nil
 	}
@@ -67,7 +77,15 @@ func (s *Session) persist(msg schema.Message) error {
 	if err := lockExclusive(s.file.Fd()); err != nil {
 		return err
 	}
-	defer func() { _ = unlock(s.file.Fd()) }()
+	defer func() {
+		if uerr := unlock(s.file.Fd()); uerr != nil {
+			// Logging is not available here; a failed unlock leaves the
+			// lock held and the next Append will block on flock. That
+			// is loud enough to investigate without dropping a log line
+			// from a leaf I/O helper.
+			_ = uerr
+		}
+	}()
 	if _, err := s.file.Write(data); err != nil {
 		return fmt.Errorf("write session line: %w", err)
 	}

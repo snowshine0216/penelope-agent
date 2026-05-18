@@ -50,6 +50,13 @@ func OpenSession(id string, dir string) (*Session, error) {
 		return nil, err
 	}
 
+	// Spec D12/D13: between readAllMessages (above) and this OpenFile, a
+	// peer process may have appended further lines via flock. Those lines
+	// are durable on disk but are missing from `messages`. Subsequent
+	// Appends from this Session land at the file end via O_APPEND, so the
+	// file itself stays consistent — but Messages() reflects a stale view
+	// for the rest of this process's lifetime. The trimmer's defensive
+	// cleanup is what rescues the provider view when this happens.
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open session %q: %w", id, err)
