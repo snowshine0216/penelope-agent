@@ -11,10 +11,6 @@
 **Priority:** P2
 **Description:** `main.go` uses `context.Background()` with no signal handler. Ctrl-C kills the process via the default SIGINT handler, leaving in-flight bash child processes as orphans. Use `signal.NotifyContext` so the engine's `ctx.Err()` check fires and the agent can clean up.
 
-### Cap context history to prevent context-window exhaustion
-**Priority:** P2
-**Description:** `contextHistory` grows unboundedly across turns with no token budget. A 25-turn session with 5 tool calls per turn accumulates ~130 messages. When the model's context window fills, the API returns a fatal error and the entire session is lost. Add a sliding-window trim or summarisation pass before each `Generate` call.
-
 ## Tools
 
 ### Fix intermediate-symlink escape in safepath
