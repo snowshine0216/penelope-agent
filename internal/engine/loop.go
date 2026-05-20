@@ -35,11 +35,9 @@ type AgentEngine struct {
 
 	contextManager *agentcontext.Manager
 	session        *agentsession.Session
-	trimmer        agentsession.Trimmer // removed in Task 17
 
 	// compactor, calibrator, and compactCfg are wired by SetCompactor /
-	// SetCalibrator / SetCompactConfig. When nil/zero the engine falls
-	// back to the old trimmer-based identity path.
+	// SetCalibrator / SetCompactConfig.
 	compactor    *compact.Compactor
 	compactCfg   compact.Config
 	calibrator   *compact.Calibrator
@@ -72,10 +70,6 @@ func (e *AgentEngine) SetContextManager(manager *agentcontext.Manager) {
 
 // SetSession attaches the canonical history store.
 func (e *AgentEngine) SetSession(s *agentsession.Session) { e.session = s }
-
-// SetTrimmer attaches a strategy used to bound what the provider sees.
-// Kept for backward compatibility; the compactor path supersedes it.
-func (e *AgentEngine) SetTrimmer(t agentsession.Trimmer) { e.trimmer = t }
 
 // SetCompactor wires the compactor that drives Layer A + B compaction.
 func (e *AgentEngine) SetCompactor(c *compact.Compactor) { e.compactor = c }
@@ -241,15 +235,20 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 	return nil
 }
 
-// buildView composes the provider view for one turn. When a compactor is
-// configured it drives Layer A + B compaction and returns stats. When only
-// a trimmer is set (legacy path), it trims instead. When neither is set,
-// identity view is returned.
+// buildView composes the provider view for one turn using the compactor
+// pipeline. When no compactor is set, an identity view is returned.
 func (e *AgentEngine) buildView(systemMsg schema.Message, tail []schema.Message, turn int) ([]schema.Message, compact.CompactStats) {
 	if e.compactor != nil {
 		return e.buildCompactedView(systemMsg, tail, turn)
 	}
-	return e.buildTrimmedView(systemMsg, tail, turn)
+	// No compactor: identity view with zero stats.
+	view := make([]schema.Message, 0, 1+len(tail))
+	view = append(view, systemMsg)
+	view = append(view, tail...)
+	stats := compact.NewCompactStats(turn, compact.EstimateTokens(tail))
+	stats.AfterLayerA = stats.Before
+	stats.AfterLayerB = stats.Before
+	return view, stats
 }
 
 // buildCompactedView uses the compactor pipeline.
@@ -270,28 +269,6 @@ func (e *AgentEngine) buildCompactedView(systemMsg schema.Message, tail []schema
 	view := make([]schema.Message, 0, 1+len(compacted))
 	view = append(view, systemMsg)
 	view = append(view, compacted...)
-	return view, stats
-}
-
-// buildTrimmedView uses the legacy trimmer path (backward compatibility for
-// tests that use SetTrimmer but not SetCompactor).
-func (e *AgentEngine) buildTrimmedView(systemMsg schema.Message, tail []schema.Message, turn int) ([]schema.Message, compact.CompactStats) {
-	var trimmed []schema.Message
-	if e.trimmer != nil {
-		trimmed = e.trimmer.Trim(tail)
-	} else {
-		trimmed = tail
-	}
-	if len(trimmed) == 0 && len(tail) > 0 {
-		log.Printf("[engine] warning: trimmer returned empty slice; applying emergency floor")
-		trimmed = []schema.Message{lastUserMessage(tail)}
-	}
-	view := make([]schema.Message, 0, 1+len(trimmed))
-	view = append(view, systemMsg)
-	view = append(view, trimmed...)
-	stats := compact.NewCompactStats(turn, compact.EstimateTokens(tail))
-	stats.AfterLayerA = stats.Before
-	stats.AfterLayerB = stats.Before
 	return view, stats
 }
 
