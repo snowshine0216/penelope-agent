@@ -2,6 +2,7 @@ package compact_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -124,6 +125,46 @@ func TestShrinkIdempotent(t *testing.T) {
 	twice, _ := compact.ShrinkApply(once, cfg)
 	if len(once) != len(twice) || once[2].Content != twice[2].Content {
 		t.Fatalf("not idempotent: once=%q twice=%q", once[2].Content, twice[2].Content)
+	}
+}
+
+// TestShrinkLayerAMarkerByteArithmetic verifies that the elision marker
+// accurately reports total bytes rather than claiming all bytes were
+// elided. When MaxToolBytes=1000 and the content is 5000 bytes, the
+// marker must reflect the original total (5000) and the retained size
+// must be <= MaxToolBytes, so the marker cannot claim "5000 bytes
+// elided of 5000 total".
+func TestShrinkLayerAMarkerByteArithmetic(t *testing.T) {
+	const totalBytes = 5000
+	const maxToolBytes = 1000
+	huge := strings.Repeat("x", totalBytes)
+	in := []schema.Message{
+		user("u"),
+		asst("", tc("a", "bash")),
+		{Role: schema.RoleTool, Content: huge, ToolCallID: "a"},
+	}
+	out, _ := compact.ShrinkApply(in, compact.ShrinkConfig{MaxToolBytes: maxToolBytes, RecentTurnsVerbatim: 0})
+	content := out[2].Content
+
+	// The marker must contain the total byte count.
+	totalStr := fmt.Sprintf("%d", totalBytes)
+	if !strings.Contains(content, totalStr) {
+		t.Errorf("marker missing total byte count (%d): %q", totalBytes, content)
+	}
+
+	// The marker must NOT claim elided == total (which would mean nothing was retained).
+	// Old bug: "%d bytes elided of %d total" with both args == len(content),
+	// implying 5000 elided of 5000 total even though MaxToolBytes=1000 was retained.
+	badPattern := fmt.Sprintf("%d bytes elided of %d total", totalBytes, totalBytes)
+	if strings.Contains(content, badPattern) {
+		t.Errorf("marker claims elided == total (%q) — byte arithmetic is wrong: %q", badPattern, content)
+	}
+
+	// The elided count should be less than total (some bytes were retained).
+	elidedCount := totalBytes - maxToolBytes
+	elidedStr := fmt.Sprintf("%d bytes elided", elidedCount)
+	if !strings.Contains(content, elidedStr) {
+		t.Errorf("marker should report elided bytes (%d), got: %q", elidedCount, content)
 	}
 }
 

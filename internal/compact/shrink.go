@@ -42,10 +42,12 @@ func ShrinkApply(history []schema.Message, cfg ShrinkConfig) ([]schema.Message, 
 		case schema.RoleTool:
 			// Skip re-truncation if already truncated (idempotency guard).
 			if len(out[i].Content) > cfg.MaxToolBytes && !isAlreadyTruncated(out[i].Content) {
+				totalBytes := len(out[i].Content)
+				elidedBytes := totalBytes - cfg.MaxToolBytes
 				marker := fmt.Sprintf(
 					"\n\n...[%d bytes elided of %d total for call_id=%s; "+
 						"use read_tool_output(call_id=%q, start_line=N, line_count=M) to read more]...\n\n",
-					len(out[i].Content), len(out[i].Content), out[i].ToolCallID, out[i].ToolCallID,
+					elidedBytes, totalBytes, out[i].ToolCallID, out[i].ToolCallID,
 				)
 				out[i].Content = truncate.WithMarker(out[i].Content, cfg.MaxToolBytes, marker)
 				stats.ToolResultsTruncated++
