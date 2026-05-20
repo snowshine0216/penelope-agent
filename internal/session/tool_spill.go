@@ -16,15 +16,16 @@ import (
 const MaxToolBytesScannerBuffer = 65536
 
 // toolOutputsDir returns the directory where this session keeps its
-// spilled tool outputs. Adjacent to the JSONL file rather than nested
-// inside it so a future cleanup can `rm -rf` the dir without touching
-// the canonical history.
+// spilled tool outputs. Nested under <sessionsDir>/<session-id>/ so
+// all per-session artefacts are grouped and a future cleanup can
+// `rm -rf <sessionsDir>/<sid>/` without touching other sessions.
+// Layout matches the spec: .claw/sessions/<session-id>/tool-outputs/
 func (s *Session) toolOutputsDir() string {
 	if s.file == nil {
 		return ""
 	}
 	sessionDir := filepath.Dir(s.file.Name())
-	return filepath.Join(sessionDir, s.id+"-tool-outputs")
+	return filepath.Join(sessionDir, s.id, "tool-outputs")
 }
 
 // ToolOutputPath returns the canonical on-disk path for a spilled

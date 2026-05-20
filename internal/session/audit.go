@@ -9,15 +9,16 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/compact"
 )
 
-// compactEventsPath returns the per-session audit log path. Located
-// adjacent to the JSONL history rather than nested so a `ls` of the
-// sessions dir surfaces every artefact for one session.
+// compactEventsPath returns the per-session audit log path. Nested
+// under <sessionsDir>/<session-id>/ alongside tool-outputs/ so all
+// per-session artefacts are grouped together.
+// Layout matches the spec: .claw/sessions/<session-id>/compact-events.jsonl
 func (s *Session) compactEventsPath() string {
 	if s.file == nil {
 		return ""
 	}
 	dir := filepath.Dir(s.file.Name())
-	return filepath.Join(dir, s.id+"-compact-events.jsonl")
+	return filepath.Join(dir, s.id, "compact-events.jsonl")
 }
 
 // AppendCompactEvent appends one CompactStats line to the per-session
@@ -29,6 +30,9 @@ func (s *Session) AppendCompactEvent(stats compact.CompactStats) error {
 		return nil
 	}
 	path := s.compactEventsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("mkdir compact audit dir: %w", err)
+	}
 	data, err := json.Marshal(stats)
 	if err != nil {
 		return fmt.Errorf("marshal compact event: %w", err)

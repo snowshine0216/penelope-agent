@@ -84,14 +84,10 @@ func TestCompactIntegrationHugeToolOutputSpills(t *testing.T) {
 		}
 	}
 
-	// Spill file exists.
-	spillPath := filepath.Join(dir, sess.ID()+"-tool-outputs", "tool_huge.txt")
+	// Spill file exists at spec layout: <sessionsDir>/<sid>/tool-outputs/<call-id>.txt
+	spillPath := filepath.Join(dir, sess.ID(), "tool-outputs", "tool_huge.txt")
 	if _, err := os.Stat(spillPath); err != nil {
-		// alt layout
-		spillPath = filepath.Join(dir, sess.ID(), "tool-outputs", "tool_huge.txt")
-		if _, err := os.Stat(spillPath); err != nil {
-			t.Fatalf("spill file missing: %v", err)
-		}
+		t.Fatalf("spill file missing at spec path %q: %v", spillPath, err)
 	}
 
 	// Marker in the session's tool message refers to call_id.

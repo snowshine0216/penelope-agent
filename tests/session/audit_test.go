@@ -38,13 +38,10 @@ func TestAppendCompactEventRoundTrip(t *testing.T) {
 		t.Fatalf("append 2: %v", err)
 	}
 
-	path := filepath.Join(dir, sess.ID()+"-compact-events.jsonl")
+	// Spec layout: .claw/sessions/<session-id>/compact-events.jsonl
+	path := filepath.Join(dir, sess.ID(), "compact-events.jsonl")
 	if _, err := os.Stat(path); err != nil {
-		// alt layout
-		path = filepath.Join(dir, sess.ID(), "compact-events.jsonl")
-		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("audit log missing at either location: %v", err)
-		}
+		t.Fatalf("audit log missing at spec path %q: %v", path, err)
 	}
 
 	f, err := os.Open(path)

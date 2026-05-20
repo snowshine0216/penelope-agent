@@ -125,13 +125,10 @@ func TestSpillFileLocation(t *testing.T) {
 	if _, _, err := sess.SpillToolOutput("c1", "x"); err != nil {
 		t.Fatalf("spill: %v", err)
 	}
-	expected := filepath.Join(dir, sess.ID()+"-tool-outputs", "c1.txt")
+	// Spec layout: .claw/sessions/<session-id>/tool-outputs/<call-id>.txt
+	expected := filepath.Join(dir, sess.ID(), "tool-outputs", "c1.txt")
 	if _, err := os.Stat(expected); err != nil {
-		// also accept the documented layout below: <dir>/<sid>/tool-outputs/c1.txt
-		alt := filepath.Join(dir, sess.ID(), "tool-outputs", "c1.txt")
-		if _, err2 := os.Stat(alt); err2 != nil {
-			t.Fatalf("spill file at neither %q nor %q: %v / %v", expected, alt, err, err2)
-		}
+		t.Fatalf("spill file not at spec path %q: %v", expected, err)
 	}
 }
 
