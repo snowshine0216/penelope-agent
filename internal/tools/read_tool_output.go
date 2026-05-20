@@ -83,7 +83,7 @@ func (t *ReadToolOutputTool) Execute(_ context.Context, raw json.RawMessage) (st
 
 	chunk, total, err := t.sess.ReadToolOutputChunk(args.CallID, args.StartLine, args.LineCount)
 	if err != nil {
-		return fmt.Sprintf("read_tool_output: %v (call_id=%q not found in tool-outputs dir)", err, args.CallID), nil
+		return "", fmt.Errorf("read_tool_output: call_id=%q not found in tool-outputs dir: %w", args.CallID, err)
 	}
 
 	endLine := args.StartLine + args.LineCount - 1

@@ -6,9 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/snowshine0216/penelope-agent/internal/schema"
 	"github.com/snowshine0216/penelope-agent/internal/session"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
+
+func mustMarshal(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("mustMarshal: %v", err)
+	}
+	return b
+}
 
 func TestReadToolOutputBasic(t *testing.T) {
 	dir := t.TempDir()
@@ -59,6 +69,29 @@ func TestReadToolOutputUnknownCallID(t *testing.T) {
 	out, err := tool.Execute(context.Background(), args)
 	if err == nil && !strings.Contains(out, "not found") && !strings.Contains(out, "no such") {
 		t.Fatalf("expected error or not-found marker, got: %q / %v", out, err)
+	}
+}
+
+// TestReadToolOutputUnknownCallIDIsErrorViaRegistry verifies that an
+// unknown call_id causes the registry to set IsError=true on the
+// ToolResult. Providers treat IsError=false as success and would loop
+// with the same bad call_id indefinitely if this were not set.
+func TestReadToolOutputUnknownCallIDIsErrorViaRegistry(t *testing.T) {
+	dir := t.TempDir()
+	sess, _ := session.NewSession(dir)
+	defer sess.Close()
+
+	reg := tools.NewRegistry()
+	reg.Register(tools.NewReadToolOutputTool(sess, 65536))
+
+	call := schema.ToolCall{
+		ID:        "call-1",
+		Name:      "read_tool_output",
+		Arguments: mustMarshal(t, map[string]any{"call_id": "does-not-exist"}),
+	}
+	result := reg.Execute(context.Background(), call)
+	if !result.IsError {
+		t.Fatalf("expected IsError=true for unknown call_id, got IsError=false; output=%q", result.Output)
 	}
 }
 
