@@ -1,0 +1,12 @@
+{
+  "turn": 10,
+  "before": 5463,
+  "after_layer_a": 5463,
+  "after_layer_b": 5463,
+  "budget": 0,
+  "saved": 0,
+  "layer_b_engaged": false,
+  "turns_folded": 0,
+  "tool_outputs_spilled": 0,
+  "calibrator_ratio": 1
+}

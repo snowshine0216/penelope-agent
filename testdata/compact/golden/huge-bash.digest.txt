@@ -1,0 +1,4 @@
+## Prior session digest (turns 1..1, compacted)
+
+Turn 1 — user: "turn 1 question"
+Turn 1 — assistant: turn 1 answer
