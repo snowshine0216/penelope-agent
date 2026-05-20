@@ -1,20 +1,29 @@
 // internal/engine/reporter.go
 package engine
 
-import "context"
+import (
+	"context"
 
-// Reporter 定义了 Agent 引擎向外界输出信息的规范。
-// 这使得引擎可以无缝切换终端 (CLI)、飞书、钉钉甚至 WebUI 等不同的展现层。
+	"github.com/snowshine0216/penelope-agent/internal/compact"
+)
+
+// Reporter defines the contract for surfacing agent engine events to the
+// presentation layer (CLI, Feishu, web UI, etc.).
 type Reporter interface {
-	// OnThinking 当模型开始进行慢思考 (Reasoning) 时调用
+	// OnThinking is called when the model enters a slow-reasoning phase.
 	OnThinking(ctx context.Context)
 
-	// OnToolCall 当模型决定并发调用工具时调用
+	// OnToolCall is called when the model decides to invoke a tool.
 	OnToolCall(ctx context.Context, toolName string, args string)
 
-	// OnToolResult 当工具在底层执行完毕并返回结果时调用
+	// OnToolResult is called when a tool finishes execution.
 	OnToolResult(ctx context.Context, toolName string, result string, isError bool)
 
-	// OnMessage 当模型宣告任务完成，向用户输出最终纯文本回答时调用
+	// OnMessage is called when the model emits a final text response.
 	OnMessage(ctx context.Context, content string)
+
+	// OnCompact is fired once per turn when compaction stats merit
+	// surfacing. Emission rule lives in the engine (see shouldEmit).
+	// Task 15 implements the body; this task only needs the stub.
+	OnCompact(ctx context.Context, stats compact.CompactStats)
 }

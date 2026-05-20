@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/snowshine0216/penelope-agent/internal/compact"
 	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
@@ -36,9 +37,19 @@ type AgentEngine struct {
 	session        *agentsession.Session
 	trimmer        agentsession.Trimmer // removed in Task 17
 
+	// compactor, calibrator, and compactCfg are wired by SetCompactor /
+	// SetCalibrator / SetCompactConfig. When nil/zero the engine falls
+	// back to the old trimmer-based identity path.
+	compactor    *compact.Compactor
+	compactCfg   compact.Config
+	calibrator   *compact.Calibrator
+	modelID      string
+	outputCap    int
+	safetyFactor float64
+	overrides    map[string]int
+
 	// lastUsage carries the previous turn's provider-reported token
 	// usage forward into the next turn's budget. Zero on first turn.
-	// Wired up in Task 14.
 	lastUsage provider.Usage
 }
 
@@ -49,6 +60,8 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 		registry:       r,
 		WorkDir:        workDir,
 		EnableThinking: enableThinking,
+		safetyFactor:   0.75,
+		outputCap:      4096,
 	}
 }
 
@@ -57,25 +70,40 @@ func (e *AgentEngine) SetContextManager(manager *agentcontext.Manager) {
 	e.contextManager = manager
 }
 
-// SetSession attaches the canonical history store. The engine appends
-// the user prompt, every act-phase assistant message, and every tool
-// result to the session; think-phase responses are intentionally not
-// persisted (spec D17).
-func (e *AgentEngine) SetSession(s *agentsession.Session) {
-	e.session = s
-}
+// SetSession attaches the canonical history store.
+func (e *AgentEngine) SetSession(s *agentsession.Session) { e.session = s }
 
 // SetTrimmer attaches a strategy used to bound what the provider sees.
-// If nil, the engine uses an identity trimmer that returns the full
-// session history (matches today's unbounded behavior for tests that
-// don't care).
-func (e *AgentEngine) SetTrimmer(t agentsession.Trimmer) {
-	e.trimmer = t
-}
+// Kept for backward compatibility; the compactor path supersedes it.
+func (e *AgentEngine) SetTrimmer(t agentsession.Trimmer) { e.trimmer = t }
+
+// SetCompactor wires the compactor that drives Layer A + B compaction.
+func (e *AgentEngine) SetCompactor(c *compact.Compactor) { e.compactor = c }
+
+// SetCalibrator wires the EWMA calibrator for token-count correction.
+func (e *AgentEngine) SetCalibrator(c *compact.Calibrator) { e.calibrator = c }
+
+// SetCompactConfig sets the compaction configuration (MaxToolBytes etc.).
+func (e *AgentEngine) SetCompactConfig(c compact.Config) { e.compactCfg = c }
+
+// SetModelID sets the model identifier used for budget calculation.
+func (e *AgentEngine) SetModelID(id string) { e.modelID = id }
+
+// SetOutputCap sets the output-token cap used for budget calculation.
+func (e *AgentEngine) SetOutputCap(n int) { e.outputCap = n }
+
+// SetSafetyFactor sets the safety factor used for budget calculation.
+func (e *AgentEngine) SetSafetyFactor(f float64) { e.safetyFactor = f }
+
+// SetModelLimitOverrides sets optional per-model context-limit overrides.
+func (e *AgentEngine) SetModelLimitOverrides(m map[string]int) { e.overrides = m }
+
+// LastUsageForTest exposes lastUsage for integration tests.
+func (e *AgentEngine) LastUsageForTest() provider.Usage { return e.lastUsage }
 
 const defaultMaxTurns = 25
 
-// Run starts the agent loop with the given user prompt and returns an error if the context is cancelled or MaxTurns is exceeded.
+// Run starts the agent loop with the given user prompt.
 func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporter) error {
 	log.Printf("[engine] starting, workdir=%s thinking=%v", e.WorkDir, e.EnableThinking)
 
@@ -97,6 +125,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 	systemMsg := schema.Message{Role: schema.RoleSystem, Content: e.systemPrompt()}
 	availableTools := e.registry.GetAvailableTools()
 	turnCount := 0
+	toolSpillThisTurn := 0
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -108,7 +137,9 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 		}
 		log.Printf("[engine] turn %d", turnCount)
 
-		view := e.providerView(systemMsg, sess.Messages())
+		view, stats := e.buildView(systemMsg, sess.Messages(), turnCount)
+		stats.ToolOutputsSpilled = toolSpillThisTurn
+		toolSpillThisTurn = 0
 
 		if e.EnableThinking {
 			log.Println("[engine] phase=think tools=disabled")
@@ -116,11 +147,10 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 			if err != nil {
 				return fmt.Errorf("think phase: %w", err)
 			}
-			if thinkResp.Message != nil && thinkResp.Message.Content != "" {
+			if thinkResp != nil && thinkResp.Message != nil && thinkResp.Message.Content != "" {
 				report.OnThinking(ctx)
-				// Spec D17: think-phase responses are NOT persisted to
-				// the session. Carry it forward only inside this turn
-				// so the act-phase call can see the reasoning.
+				// Spec D17: think-phase responses are NOT persisted to the
+				// session. Carry forward only inside this turn.
 				view = append(view, *thinkResp.Message)
 			}
 		}
@@ -132,6 +162,14 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 		}
 		actionMsg := actionResp.Message
 		e.lastUsage = actionResp.Usage
+
+		if e.calibrator != nil && actionResp.Usage.InputTokens > 0 {
+			e.calibrator.Observe(stats.AfterLayerB, actionResp.Usage.InputTokens)
+		}
+
+		if shouldEmit(stats) {
+			report.OnCompact(ctx, stats)
+		}
 
 		if err := sess.Append(*actionMsg); err != nil {
 			return fmt.Errorf("persist act response: %w", err)
@@ -154,6 +192,13 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 				return err
 			}
 			for _, result := range results {
+				spilled, err := e.applyToolBoundaryCap(sess, &result)
+				if err != nil {
+					return err
+				}
+				if spilled {
+					toolSpillThisTurn++
+				}
 				if err := sess.Append(toolResultMessage(result)); err != nil {
 					return fmt.Errorf("persist tool result: %w", err)
 				}
@@ -178,6 +223,13 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 			}
 
 			for i, result := range results {
+				spilled, err := e.applyToolBoundaryCap(sess, &result)
+				if err != nil {
+					return err
+				}
+				if spilled {
+					toolSpillThisTurn++
+				}
 				report.OnToolResult(ctx, group[i].Name, result.Output, result.IsError)
 				if err := sess.Append(toolResultMessage(result)); err != nil {
 					return fmt.Errorf("persist tool result: %w", err)
@@ -189,12 +241,41 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 	return nil
 }
 
-// providerView composes the slice handed to provider.Generate: the
-// system message at index 0 followed by the trimmed session tail. If
-// the trimmer returns an empty slice (token cap so low that even the
-// latest user turn does not fit) we substitute the last user message
-// so the model still receives a valid prompt.
-func (e *AgentEngine) providerView(systemMsg schema.Message, tail []schema.Message) []schema.Message {
+// buildView composes the provider view for one turn. When a compactor is
+// configured it drives Layer A + B compaction and returns stats. When only
+// a trimmer is set (legacy path), it trims instead. When neither is set,
+// identity view is returned.
+func (e *AgentEngine) buildView(systemMsg schema.Message, tail []schema.Message, turn int) ([]schema.Message, compact.CompactStats) {
+	if e.compactor != nil {
+		return e.buildCompactedView(systemMsg, tail, turn)
+	}
+	return e.buildTrimmedView(systemMsg, tail, turn)
+}
+
+// buildCompactedView uses the compactor pipeline.
+func (e *AgentEngine) buildCompactedView(systemMsg schema.Message, tail []schema.Message, turn int) ([]schema.Message, compact.CompactStats) {
+	budget := compact.Budget(compact.BudgetInput{
+		Model:        e.modelID,
+		LastUsage:    e.lastUsage,
+		OutputCap:    e.outputCap,
+		SafetyFactor: e.safetyFactor,
+		Overrides:    e.overrides,
+	})
+	compacted, stats := e.compactor.View(tail, budget, turn, e.calibrator)
+	stats.Budget = budget
+	if len(compacted) == 0 && len(tail) > 0 {
+		log.Printf("[engine] warning: compactor returned empty slice; emergency floor")
+		compacted = []schema.Message{lastUserMessage(tail)}
+	}
+	view := make([]schema.Message, 0, 1+len(compacted))
+	view = append(view, systemMsg)
+	view = append(view, compacted...)
+	return view, stats
+}
+
+// buildTrimmedView uses the legacy trimmer path (backward compatibility for
+// tests that use SetTrimmer but not SetCompactor).
+func (e *AgentEngine) buildTrimmedView(systemMsg schema.Message, tail []schema.Message, turn int) ([]schema.Message, compact.CompactStats) {
 	var trimmed []schema.Message
 	if e.trimmer != nil {
 		trimmed = e.trimmer.Trim(tail)
@@ -208,7 +289,26 @@ func (e *AgentEngine) providerView(systemMsg schema.Message, tail []schema.Messa
 	view := make([]schema.Message, 0, 1+len(trimmed))
 	view = append(view, systemMsg)
 	view = append(view, trimmed...)
-	return view
+	stats := compact.NewCompactStats(turn, compact.EstimateTokens(tail))
+	stats.AfterLayerA = stats.Before
+	stats.AfterLayerB = stats.Before
+	return view, stats
+}
+
+// shouldEmit returns true if the OnCompact callback should fire this turn.
+// Emission rule per spec §4: Layer B engaged, any tool spill, or a
+// non-trivial saving (>= 5% of Before tokens: Saved*20 > Before).
+func shouldEmit(s compact.CompactStats) bool {
+	if s.LayerBEngaged {
+		return true
+	}
+	if s.ToolOutputsSpilled > 0 {
+		return true
+	}
+	if s.Before > 0 && s.Saved*20 > s.Before {
+		return true
+	}
+	return false
 }
 
 func lastUserMessage(tail []schema.Message) schema.Message {

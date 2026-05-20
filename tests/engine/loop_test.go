@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
+	"github.com/snowshine0216/penelope-agent/internal/compact"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
@@ -25,6 +26,7 @@ type fakeProvider struct {
 	receivedMsgs  [][]schema.Message
 	receivedTools [][]schema.ToolDefinition
 	err           error
+	usage         provider.Usage
 }
 
 func (f *fakeProvider) Generate(_ context.Context, msgs []schema.Message, t []schema.ToolDefinition) (*provider.Response, error) {
@@ -40,7 +42,7 @@ func (f *fakeProvider) Generate(_ context.Context, msgs []schema.Message, t []sc
 	f.receivedTools = append(f.receivedTools, toolsCopy)
 	resp := f.responses[f.calls]
 	f.calls++
-	return &provider.Response{Message: &resp, Usage: provider.Usage{}}, nil
+	return &provider.Response{Message: &resp, Usage: f.usage}, nil
 }
 
 // recordingTool captures calls so tests can verify the engine actually
@@ -68,6 +70,8 @@ func (r *toolCallRecordingReporter) OnToolCall(_ context.Context, toolName strin
 func (r *toolCallRecordingReporter) OnToolResult(context.Context, string, string, bool) {}
 
 func (r *toolCallRecordingReporter) OnMessage(context.Context, string) {}
+
+func (r *toolCallRecordingReporter) OnCompact(context.Context, compact.CompactStats) {}
 
 func (r *recordingTool) Name() string { return r.name }
 
