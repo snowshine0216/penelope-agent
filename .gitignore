@@ -3,3 +3,4 @@
 *.test
 vendor/
 /claw
+/.autodev-current
