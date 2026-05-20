@@ -126,3 +126,67 @@ func TestShrinkIdempotent(t *testing.T) {
 		t.Fatalf("not idempotent: once=%q twice=%q", once[2].Content, twice[2].Content)
 	}
 }
+
+// TestShrinkApplyDoesNotMutateInputToolCalls verifies the pure-function
+// invariant: ShrinkApply must not write through to the caller's slice
+// when stripping write_file / edit_file Arguments.
+func TestShrinkApplyDoesNotMutateInputToolCalls(t *testing.T) {
+	bigContent := strings.Repeat("z", 10_000)
+	args, _ := json.Marshal(map[string]string{"path": "x.go", "content": bigContent})
+
+	in := []schema.Message{
+		user("u1"),
+		asst("", schema.ToolCall{ID: "wf1", Name: "write_file", Arguments: args}),
+		toolMsg("wf1", "ok"),
+		user("u2"),
+		asst("done"),
+	}
+
+	// Capture original before calling ShrinkApply.
+	original := string(in[1].ToolCalls[0].Arguments)
+
+	out, stats := compact.ShrinkApply(in, compact.ShrinkConfig{MaxToolBytes: 65536, RecentTurnsVerbatim: 0})
+
+	// The fix should have stripped the output.
+	if stats.ToolCallArgsStripped == 0 {
+		t.Fatal("expected ToolCallArgsStripped > 0 — the stripping path was not exercised")
+	}
+	// Output must be stripped.
+	if strings.Contains(string(out[1].ToolCalls[0].Arguments), bigContent) {
+		t.Fatalf("output not stripped: %s", string(out[1].ToolCalls[0].Arguments))
+	}
+	// Input must be UNCHANGED.
+	if string(in[1].ToolCalls[0].Arguments) != original {
+		t.Fatalf("ShrinkApply mutated input ToolCalls[0].Arguments:\ngot:  %s\nwant: %s",
+			string(in[1].ToolCalls[0].Arguments), original)
+	}
+}
+
+// TestCompactorViewIsPureToolCalls strengthens the existing purity test
+// to cover ToolCalls.Arguments mutation, not just text Content.
+// Uses RecentTurnsVerbatim=0 so the write_file turn is inside the strip window.
+func TestCompactorViewIsPureToolCalls(t *testing.T) {
+	bigContent := strings.Repeat("z", 10_000)
+	args, _ := json.Marshal(map[string]string{"path": "x.go", "content": bigContent})
+
+	in := []schema.Message{
+		user("u1"),
+		asst("", schema.ToolCall{ID: "wf1", Name: "write_file", Arguments: args}),
+		toolMsg("wf1", "ok"),
+		user("u2"),
+		asst("done"),
+	}
+	originalArgs := string(in[1].ToolCalls[0].Arguments)
+
+	c := compact.NewCompactor(compact.Config{
+		MaxToolBytes:        65536,
+		RecentTurnsVerbatim: 0, // no verbatim window — write_file turn IS in the strip path
+	})
+	// Pass a very small budget so Layer A MUST run the strip path.
+	_, _ = c.View(in, 1, 1, compact.NewCalibrator(0.3))
+
+	if string(in[1].ToolCalls[0].Arguments) != originalArgs {
+		t.Fatalf("Compactor.View mutated input ToolCalls[0].Arguments:\ngot:  %s\nwant: %s",
+			string(in[1].ToolCalls[0].Arguments), originalArgs)
+	}
+}

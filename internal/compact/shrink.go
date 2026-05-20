@@ -54,6 +54,27 @@ func ShrinkApply(history []schema.Message, cfg ShrinkConfig) ([]schema.Message, 
 			if i >= verbatimStart {
 				continue
 			}
+			// Check whether any tool call in this message needs stripping
+			// before deep-copying the slice (avoids allocation on the
+			// common no-mutation path).
+			needsCopy := false
+			for j := range out[i].ToolCalls {
+				if isLargeArgTool(out[i].ToolCalls[j].Name) {
+					_, changed := stripLargeArgs(out[i].ToolCalls[j].Arguments)
+					if changed {
+						needsCopy = true
+						break
+					}
+				}
+			}
+			if !needsCopy {
+				continue
+			}
+			// Deep-copy the ToolCalls slice so we don't write through to
+			// the caller's backing array (ShrinkApply purity invariant).
+			tc := make([]schema.ToolCall, len(out[i].ToolCalls))
+			copy(tc, out[i].ToolCalls)
+			out[i].ToolCalls = tc
 			for j := range out[i].ToolCalls {
 				if !isLargeArgTool(out[i].ToolCalls[j].Name) {
 					continue
