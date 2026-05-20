@@ -34,7 +34,12 @@ type AgentEngine struct {
 
 	contextManager *agentcontext.Manager
 	session        *agentsession.Session
-	trimmer        agentsession.Trimmer
+	trimmer        agentsession.Trimmer // removed in Task 17
+
+	// lastUsage carries the previous turn's provider-reported token
+	// usage forward into the next turn's budget. Zero on first turn.
+	// Wired up in Task 14.
+	lastUsage provider.Usage
 }
 
 // NewAgentEngine constructs an AgentEngine with the given provider, registry, and work directory.
@@ -126,7 +131,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 			return fmt.Errorf("act phase: %w", err)
 		}
 		actionMsg := actionResp.Message
-		_ = actionResp.Usage // plumbed through in Task 11
+		e.lastUsage = actionResp.Usage
 
 		if err := sess.Append(*actionMsg); err != nil {
 			return fmt.Errorf("persist act response: %w", err)
