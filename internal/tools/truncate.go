@@ -5,30 +5,43 @@ import (
 	"unicode/utf8"
 )
 
-// TruncateForLLM returns s unchanged when it fits in maxBytes. Otherwise
-// it returns roughly the first half and the last half of the budget joined
-// by an elision marker, with both cuts backed up to the nearest valid
-// UTF-8 rune boundary so the result is always valid UTF-8.
+// TruncateForLLM returns s unchanged when it fits in maxBytes, otherwise
+// returns a head+tail elision with the project's standard marker.
+// Existing callers rely on the standard marker text; new callers that
+// need a different marker should use TruncateWithMarker directly.
 func TruncateForLLM(s string, maxBytes int) string {
 	if len(s) <= maxBytes {
 		return s
 	}
-	if maxBytes <= 0 {
-		return fmt.Sprintf("...[%d bytes elided]...", len(s))
+	standardMarker := func(elided int) string {
+		return fmt.Sprintf("\n\n...[%d bytes elided of %d total]...\n\n", elided, len(s))
 	}
+	return truncateInternal(s, maxBytes, standardMarker)
+}
 
+// TruncateWithMarker is the general form: caller supplies the marker
+// string. The marker is inserted between the head and tail slices, and
+// the head/tail cuts are backed up to the nearest valid UTF-8 rune
+// boundary so the result is always valid UTF-8.
+func TruncateWithMarker(s string, maxBytes int, marker string) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	return truncateInternal(s, maxBytes, func(_ int) string { return marker })
+}
+
+func truncateInternal(s string, maxBytes int, markerFn func(elided int) string) string {
+	if maxBytes <= 0 {
+		return markerFn(len(s))
+	}
 	half := maxBytes / 2
 	headEnd := safeRuneBoundaryDown(s, half)
 	tailStart := safeRuneBoundaryUp(s, len(s)-half)
-
 	if tailStart <= headEnd {
 		tailStart = headEnd
 	}
-
 	elided := tailStart - headEnd
-	return s[:headEnd] +
-		fmt.Sprintf("\n\n...[%d bytes elided of %d total]...\n\n", elided, len(s)) +
-		s[tailStart:]
+	return s[:headEnd] + markerFn(elided) + s[tailStart:]
 }
 
 func safeRuneBoundaryDown(s string, max int) int {
