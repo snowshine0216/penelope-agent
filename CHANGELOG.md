@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## v0.7.0.0 — 2026-05-20
+
+### Added
+
+- **Adaptive semantic compaction.** Replaced the drop-based session
+  trimmer with a deterministic, semantics-preserving compactor
+  (`internal/compact`). Layer A applies structural shrink to every
+  message (tool-result truncation with spill marker, write_file /
+  edit_file argument stripping outside the verbatim window). Layer B
+  rolls oldest non-verbatim turns into a deterministic digest. Pure
+  function — no second model, no LLM round-trip.
+- **Tool-output disk spill.** Tool results larger than
+  `--compact-max-tool-bytes` (default 64 KB) spill to
+  `.claw/sessions/<id>-tool-outputs/<call_id>.txt`. The original
+  result is replaced with a head+tail marker that names the call_id.
+- **`read_tool_output` built-in tool.** Model-facing chunked retrieval
+  of spilled outputs. Supports `start_line`, `line_count` (max 1000),
+  and surfaces total line counts so the model knows how much remains.
+- **Adaptive token budget.** Per-model context-window registry in
+  `internal/compact/modellimits.go` plus optional override at
+  `.claw/model-limits.yaml`. Budget derives from the resolved limit
+  times `--compact-safety-factor` (default 0.75) minus the requested
+  `--max-tokens` output cap.
+- **EWMA calibrator.** Self-tunes the chars/4 local estimate toward
+  the provider-reported `Usage.InputTokens` after 2-3 turns. Resets
+  per session.
+- **`OnCompact` reporter callback.** Prints a `[compact] turn N: ...`
+  line to stderr when Layer B engaged, when tool outputs spilled, or
+  when ≥ 5% was saved. Audited to
+  `.claw/sessions/<id>-compact-events.jsonl` under the same per-write
+  flock as message persistence.
+
+### Removed
+
+- `--trim-strategy`, `--max-context-turns`, `--max-context-tokens`
+  CLI flags. Using any of them prints a hard error pointing at the
+  replacement (`--compact-recent-turns`, `--compact-fallback-limit`).
+- `internal/session/window.go`, `internal/session/trim.go`,
+  `internal/session/tokens.go`. The trim strategy registry is gone.
+
+### Test coverage
+
+- 4-layer pyramid: unit (`tests/compact/`), integration
+  (`tests/engine/compact_integration_test.go`), real-case fixtures
+  with goldens (`tests/engine/compact_realcase_test.go` +
+  `testdata/compact/`), and live-provider smoke
+  (`tests/engine/compact_live_test.go`, build tag `live_provider`).
+- Default `go test ./...` runs layers 1-4; layer 5 is invoked with
+  `go test -tags=live_provider ./tests/engine -run TestCompact_LiveClaude`.
+
+### Migration
+
+Existing on-disk sessions resume unchanged — the JSONL format is the
+same; only the read-time view producer is replaced. CLI users on the
+removed flags must switch to the `--compact-*` equivalents.
+
 ## [0.5.0.0] - 2026-05-14
 
 ### Added
