@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/snowshine0216/penelope-agent/internal/compact"
 	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
 	"github.com/snowshine0216/penelope-agent/internal/provider"
@@ -16,19 +17,41 @@ import (
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
 
+// removedFlag intercepts flags that were removed in the adaptive-compaction
+// migration. flag.Set on it always returns a hard error with a hint at the
+// replacement.
+type removedFlag struct {
+	name        string
+	replacement string
+}
+
+func (r *removedFlag) String() string { return "" }
+func (r *removedFlag) Set(string) error {
+	return fmt.Errorf("--%s was removed; use --%s (adaptive semantic compaction)", r.name, r.replacement)
+}
+
 func main() {
 	prompt := flag.String("prompt", "", "user prompt; if empty, read from stdin")
 	think := flag.Bool("think", false, "enable thinking phase before each action")
 	providerName := flag.String("provider", "openai", "provider: openai or claude")
 	model := flag.String("model", "", "model id; defaults to LLM_MODEL env or provider default")
 	maxTurns := flag.Int("max-turns", 25, "max engine turns per run")
-	maxTokens := flag.Int("max-tokens", 4096, "max output tokens (claude only)")
+	maxTokens := flag.Int("max-tokens", 4096, "max output tokens (claude only); also used as Budget OutputCap")
 	workDir := flag.String("workdir", "", "workspace root; defaults to cwd")
 	sessionID := flag.String("session", "", "resume the named session; empty creates a fresh one")
 	sessionsDir := flag.String("sessions-dir", "", "directory for session files; defaults to <workdir>/.claw/sessions")
-	maxContextTurns := flag.Int("max-context-turns", 6, "trim window: keep this many recent user turns")
-	maxContextTokens := flag.Int("max-context-tokens", 32000, "trim window: hard ceiling on estimated tokens (chars/4)")
-	trimStrategy := flag.String("trim-strategy", "window", "trim strategy name; v1 ships only 'window'")
+
+	// New compact flags.
+	compactRecentTurns := flag.Int("compact-recent-turns", 4, "verbatim window: keep this many recent user turns un-stripped")
+	compactFallbackLimit := flag.Int("compact-fallback-limit", 32000, "context limit when --model is unknown to the registry")
+	compactSafetyFactor := flag.Float64("compact-safety-factor", 0.75, "fraction of the model's context window to consume")
+	compactMaxToolBytes := flag.Int("compact-max-tool-bytes", 65536, "tool result boundary cap; over this triggers disk spill")
+
+	// Removed flags — hard error pointing at the replacement.
+	flag.Var(&removedFlag{name: "trim-strategy", replacement: "compact-* (the trim strategy registry was removed)"}, "trim-strategy", "REMOVED: see --compact-* flags")
+	flag.Var(&removedFlag{name: "max-context-turns", replacement: "compact-recent-turns"}, "max-context-turns", "REMOVED: use --compact-recent-turns")
+	flag.Var(&removedFlag{name: "max-context-tokens", replacement: "compact-fallback-limit"}, "max-context-tokens", "REMOVED: use --compact-fallback-limit")
+
 	flag.Parse()
 
 	cwd := *workDir
@@ -77,15 +100,11 @@ func main() {
 		resolvedSessionsDir = filepath.Join(cwd, ".claw", "sessions")
 	}
 
-	// Resolve the trimmer before opening the session so an unknown
-	// --trim-strategy fails fast without leaving an empty .jsonl file
-	// behind on disk.
-	trimmer, err := agentsession.Get(*trimStrategy, agentsession.TrimConfig{
-		MaxUserTurns: *maxContextTurns,
-		MaxTokens:    *maxContextTokens,
-	})
+	// Load optional model-limits override.
+	overridesPath := filepath.Join(cwd, ".claw", "model-limits.yaml")
+	overrides, err := compact.LoadOverridesYAML(overridesPath)
 	if err != nil {
-		log.Fatalf("trim strategy: %v", err)
+		log.Fatalf("model-limits override: %v", err)
 	}
 
 	sess, resumed, err := openOrCreateSession(*sessionID, resolvedSessionsDir)
@@ -99,12 +118,38 @@ func main() {
 		fmt.Fprintf(os.Stderr, "session: %s\n", sess.ID())
 	}
 
+	// Register read_tool_output now that the session exists.
+	registry.Register(tools.NewReadToolOutputTool(sess, *compactMaxToolBytes))
+
+	resolvedModel := *model
+	if resolvedModel == "" {
+		resolvedModel = os.Getenv("LLM_MODEL")
+	}
+	compactCfg := compact.Config{
+		MaxToolBytes:        *compactMaxToolBytes,
+		RecentTurnsVerbatim: *compactRecentTurns,
+		Overrides:           overrides,
+	}
+	if _, ok := compact.LookupModelLimit(resolvedModel, overrides); !ok && resolvedModel != "" {
+		// Documented in spec §0: unknown model => fallback limit; we
+		// inject it into the overrides map so Budget() picks it up.
+		overrides[resolvedModel] = *compactFallbackLimit
+	}
+
 	eng := engine.NewAgentEngine(llm, registry, cwd, *think)
 	eng.SetContextManager(contextManager)
 	eng.SetSession(sess)
-	eng.SetTrimmer(trimmer)
+	eng.SetCompactor(compact.NewCompactor(compactCfg))
+	eng.SetCalibrator(compact.NewCalibrator(0.3))
+	eng.SetCompactConfig(compactCfg)
+	eng.SetModelID(resolvedModel)
+	eng.SetOutputCap(*maxTokens)
+	eng.SetSafetyFactor(*compactSafetyFactor)
+	eng.SetModelLimitOverrides(overrides)
 	eng.MaxTurns = *maxTurns
+
 	reporter := engine.NewTerminalReporter()
+	reporter.AttachSession(sess)
 
 	if err := eng.Run(context.Background(), userPrompt, reporter); err != nil {
 		log.Fatalf("engine: %v", err)
@@ -137,10 +182,6 @@ func newProvider(name, model string, maxTokens int) (provider.LLMProvider, error
 	}
 }
 
-// openOrCreateSession resolves the --session flag into a Session.
-// Empty id creates a fresh session; non-empty id resumes (hard error
-// if the file is missing) and rejects ids that fail format validation
-// to block path traversal at the flag boundary.
 func openOrCreateSession(id string, dir string) (*agentsession.Session, bool, error) {
 	if id == "" {
 		s, err := agentsession.NewSession(dir)

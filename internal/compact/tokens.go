@@ -1,4 +1,4 @@
-package session
+package compact
 
 import (
 	"github.com/snowshine0216/penelope-agent/internal/schema"
@@ -6,8 +6,8 @@ import (
 
 // MessageOverhead approximates the per-message envelope cost a provider
 // incurs beyond the literal content (role marker, separator tokens).
-// 8 is a small constant chosen to roughly match OpenAI's documented
-// per-message overhead so the total estimate is conservative.
+// 8 roughly matches OpenAI's documented per-message overhead so the
+// total estimate is conservative.
 const MessageOverhead = 8
 
 // EstimateOne returns a chars/4 estimate of one message's token cost,

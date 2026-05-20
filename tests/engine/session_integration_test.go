@@ -6,11 +6,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/snowshine0216/penelope-agent/internal/compact"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 	agentsession "github.com/snowshine0216/penelope-agent/internal/session"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
+
+func newTestEngine(p *fakeProvider, registry tools.Registry, dir string, sess *agentsession.Session) *engine.AgentEngine {
+	eng := engine.NewAgentEngine(p, registry, dir, false)
+	eng.SetSession(sess)
+	eng.SetCompactor(compact.NewCompactor(compact.Config{
+		MaxToolBytes:        65536,
+		RecentTurnsVerbatim: 4,
+	}))
+	eng.SetCalibrator(compact.NewCalibrator(0.3))
+	return eng
+}
 
 func TestEngineAppendsUserPromptAndActMessagesToSession(t *testing.T) {
 	dir := t.TempDir()
@@ -24,10 +36,7 @@ func TestEngineAppendsUserPromptAndActMessagesToSession(t *testing.T) {
 		{Role: schema.RoleAssistant, Content: "done"},
 	}}
 	registry := tools.NewRegistry()
-	trimmer := agentsession.NewWindowTrimmer(agentsession.TrimConfig{MaxUserTurns: 6, MaxTokens: 32000})
-	eng := engine.NewAgentEngine(provider, registry, dir, false)
-	eng.SetSession(s)
-	eng.SetTrimmer(trimmer)
+	eng := newTestEngine(provider, registry, dir, s)
 
 	if err := eng.Run(context.Background(), "hello", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -54,9 +63,7 @@ func TestEngineResumeSeesPriorHistory(t *testing.T) {
 	provider1 := &fakeProvider{responses: []schema.Message{
 		{Role: schema.RoleAssistant, Content: "first reply"},
 	}}
-	eng1 := engine.NewAgentEngine(provider1, tools.NewRegistry(), dir, false)
-	eng1.SetSession(first)
-	eng1.SetTrimmer(agentsession.NewWindowTrimmer(agentsession.TrimConfig{MaxUserTurns: 6, MaxTokens: 32000}))
+	eng1 := newTestEngine(provider1, tools.NewRegistry(), dir, first)
 	if err := eng1.Run(context.Background(), "round one", noOpReporter{}); err != nil {
 		t.Fatalf("Run 1: %v", err)
 	}
@@ -72,9 +79,7 @@ func TestEngineResumeSeesPriorHistory(t *testing.T) {
 	provider2 := &fakeProvider{responses: []schema.Message{
 		{Role: schema.RoleAssistant, Content: "second reply"},
 	}}
-	eng2 := engine.NewAgentEngine(provider2, tools.NewRegistry(), dir, false)
-	eng2.SetSession(resumed)
-	eng2.SetTrimmer(agentsession.NewWindowTrimmer(agentsession.TrimConfig{MaxUserTurns: 6, MaxTokens: 32000}))
+	eng2 := newTestEngine(provider2, tools.NewRegistry(), dir, resumed)
 	if err := eng2.Run(context.Background(), "round two", noOpReporter{}); err != nil {
 		t.Fatalf("Run 2: %v", err)
 	}
@@ -108,7 +113,10 @@ func TestEngineThinkPhaseNotPersisted(t *testing.T) {
 	}}
 	eng := engine.NewAgentEngine(provider, tools.NewRegistry(), dir, true)
 	eng.SetSession(s)
-	eng.SetTrimmer(agentsession.NewWindowTrimmer(agentsession.TrimConfig{MaxUserTurns: 6, MaxTokens: 32000}))
+	eng.SetCompactor(compact.NewCompactor(compact.Config{
+		MaxToolBytes:        65536,
+		RecentTurnsVerbatim: 4,
+	}))
 
 	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -132,10 +140,15 @@ func TestEngineEmergencyFloorWhenTokenCapIsHostile(t *testing.T) {
 	provider := &fakeProvider{responses: []schema.Message{
 		{Role: schema.RoleAssistant, Content: "ok"},
 	}}
-	hostile := agentsession.NewWindowTrimmer(agentsession.TrimConfig{MaxUserTurns: 1, MaxTokens: 1})
+	// Use a very small budget to force the emergency floor.
 	eng := engine.NewAgentEngine(provider, tools.NewRegistry(), dir, false)
 	eng.SetSession(s)
-	eng.SetTrimmer(hostile)
+	eng.SetCompactor(compact.NewCompactor(compact.Config{
+		MaxToolBytes:        65536,
+		RecentTurnsVerbatim: 4,
+	}))
+	eng.SetModelLimitOverrides(map[string]int{"test-model": 1})
+	eng.SetModelID("test-model")
 
 	prompt := strings.Repeat("y", 1000)
 	if err := eng.Run(context.Background(), prompt, noOpReporter{}); err != nil {
@@ -146,8 +159,8 @@ func TestEngineEmergencyFloorWhenTokenCapIsHostile(t *testing.T) {
 	if len(first) < 2 {
 		t.Fatalf("seen %d messages, want at least 2 (system + emergency floor)", len(first))
 	}
-	if first[1].Role != schema.RoleUser || first[1].Content != prompt {
-		t.Fatalf("emergency floor = %+v, want the latest user message", first[1])
+	if first[len(first)-1].Role != schema.RoleUser || first[len(first)-1].Content != prompt {
+		t.Fatalf("emergency floor = %+v, want the latest user message", first[len(first)-1])
 	}
 }
 
@@ -169,9 +182,7 @@ func TestEnginePersistsToolResultsForResume(t *testing.T) {
 		}},
 		{Role: schema.RoleAssistant, Content: "done"},
 	}}
-	eng := engine.NewAgentEngine(provider, registry, dir, false)
-	eng.SetSession(s)
-	eng.SetTrimmer(agentsession.NewWindowTrimmer(agentsession.TrimConfig{MaxUserTurns: 6, MaxTokens: 32000}))
+	eng := newTestEngine(provider, registry, dir, s)
 	if err := eng.Run(context.Background(), "go", noOpReporter{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

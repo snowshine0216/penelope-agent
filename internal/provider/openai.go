@@ -36,7 +36,7 @@ func NewOpenAIProvider(model string) (*OpenAIProvider, error) {
 }
 
 // Generate sends messages to the OpenAI-compatible API and returns the next assistant message.
-func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
+func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*Response, error) {
 	openaiMsgs, err := translateMessagesToOpenAI(msgs)
 	if err != nil {
 		return nil, err
@@ -82,7 +82,13 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		}
 	}
 
-	return resultMsg, nil
+	return &Response{
+		Message: resultMsg,
+		Usage: Usage{
+			InputTokens:  int(resp.Usage.PromptTokens),
+			OutputTokens: int(resp.Usage.CompletionTokens),
+		},
+	}, nil
 }
 
 // translateMessagesToOpenAI converts provider-neutral messages into OpenAI

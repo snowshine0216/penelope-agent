@@ -54,3 +54,30 @@ func TestTruncateZeroLimitReturnsMarkerOnly(t *testing.T) {
 		t.Fatalf("expected elision marker on zero-budget input, got: %q", got)
 	}
 }
+
+func TestTruncateWithMarkerCustomMarker(t *testing.T) {
+	in := strings.Repeat("x", 2000)
+	out := tools.TruncateWithMarker(in, 200, "...[SPILLED to /tmp/foo.txt]...")
+	if !strings.Contains(out, "SPILLED to /tmp/foo.txt") {
+		t.Fatalf("marker missing from output: %q", out)
+	}
+	if len(out) >= len(in) {
+		t.Fatalf("output not truncated: %d >= %d", len(out), len(in))
+	}
+}
+
+func TestTruncateWithMarkerShortInputUnchanged(t *testing.T) {
+	in := "small"
+	out := tools.TruncateWithMarker(in, 200, "ignored")
+	if out != in {
+		t.Fatalf("short input changed: %q -> %q", in, out)
+	}
+}
+
+func TestTruncateForLLMStillWorksAsThinWrapper(t *testing.T) {
+	in := strings.Repeat("x", 2000)
+	out := tools.TruncateForLLM(in, 200)
+	if !strings.Contains(out, "elided") {
+		t.Fatalf("default marker missing: %q", out)
+	}
+}

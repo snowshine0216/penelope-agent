@@ -1,0 +1,10 @@
+## Prior session digest (turns 1..2, compacted)
+
+Turn 1 — user: "fix the OOM in the trimmer please"
+Turn 1 — assistant: planning a 3-step approach
+Turn 1 — assistant: tools:
+  • read_file(main.go) → 189 lines of code
+Turn 2 — user: "looks good, run the tests"
+Turn 2 — assistant: running tests
+Turn 2 — assistant: tools:
+  • bash(go test ./...) → (elided; see call_id); call_id=c2

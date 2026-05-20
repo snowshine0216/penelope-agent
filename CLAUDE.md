@@ -16,3 +16,21 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## Running the live-provider smoke test
+
+`tests/engine/compact_live_test.go` is gated by the `live_provider` build
+tag and is skipped by default. It exercises the full adaptive-compaction
+pipeline against a real Claude endpoint and is the canonical "did the
+OOM fix really land" gate.
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... \
+  go test -tags=live_provider ./tests/engine -run TestCompact_LiveClaude -count=1 -v
+```
+
+`ANTHROPIC_API_KEY` is required. Without a key the test skips.
+
+Even without an API key, run `go vet -tags=live_provider ./tests/engine`
+before merging changes that touch `internal/compact/`, `internal/engine/`,
+or `internal/session/`. The build-tagged file must still compile.

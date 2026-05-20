@@ -1,0 +1,300 @@
+user: edit 1 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 2 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 3 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 4 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 5 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 6 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 7 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 8 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 9 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 10 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 11 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 12 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 13 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 14 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 15 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 16 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 17 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 18 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 19 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 20 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 21 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 22 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 23 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 24 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 25 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 26 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 27 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 28 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 29 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 30 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 31 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 32 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 33 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 34 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 35 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 36 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 37 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 38 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 39 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 40 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 41 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 42 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 43 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 44 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 45 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 46 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 47 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 48 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 49 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
+user: edit 50 please
+---
+assistant:  [calls=edit_file]
+---
+tool: ok
+---
