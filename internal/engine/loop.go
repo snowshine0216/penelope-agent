@@ -111,12 +111,12 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 			if err != nil {
 				return fmt.Errorf("think phase: %w", err)
 			}
-			if thinkResp.Content != "" {
+			if thinkResp.Message != nil && thinkResp.Message.Content != "" {
 				report.OnThinking(ctx)
 				// Spec D17: think-phase responses are NOT persisted to
 				// the session. Carry it forward only inside this turn
 				// so the act-phase call can see the reasoning.
-				view = append(view, *thinkResp)
+				view = append(view, *thinkResp.Message)
 			}
 		}
 
@@ -125,24 +125,26 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 		if err != nil {
 			return fmt.Errorf("act phase: %w", err)
 		}
+		actionMsg := actionResp.Message
+		_ = actionResp.Usage // plumbed through in Task 11
 
-		if err := sess.Append(*actionResp); err != nil {
+		if err := sess.Append(*actionMsg); err != nil {
 			return fmt.Errorf("persist act response: %w", err)
 		}
 
-		if actionResp.Content != "" {
-			report.OnMessage(ctx, actionResp.Content)
+		if actionMsg.Content != "" {
+			report.OnMessage(ctx, actionMsg.Content)
 		}
 
-		if len(actionResp.ToolCalls) == 0 {
+		if len(actionMsg.ToolCalls) == 0 {
 			log.Println("[engine] no tool calls, task complete")
 			break
 		}
 
-		log.Printf("[engine] tool calls requested: %d", len(actionResp.ToolCalls))
+		log.Printf("[engine] tool calls requested: %d", len(actionMsg.ToolCalls))
 
-		if hasLoadSkillCall(actionResp.ToolCalls) {
-			results, err := e.executeLoadSkillBarrier(ctx, actionResp.ToolCalls, report)
+		if hasLoadSkillCall(actionMsg.ToolCalls) {
+			results, err := e.executeLoadSkillBarrier(ctx, actionMsg.ToolCalls, report)
 			if err != nil {
 				return err
 			}
@@ -155,7 +157,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, report Reporte
 			continue
 		}
 
-		groups := PlanToolCallGroups(actionResp.ToolCalls, e.registry.ExecutionPolicyFor)
+		groups := PlanToolCallGroups(actionMsg.ToolCalls, e.registry.ExecutionPolicyFor)
 		for _, group := range groups {
 			if err := ctx.Err(); err != nil {
 				return err

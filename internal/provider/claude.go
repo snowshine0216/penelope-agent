@@ -39,7 +39,7 @@ func NewClaudeProvider(model string) (*ClaudeProvider, error) {
 }
 
 // Generate sends messages to the Anthropic API and returns the next assistant message.
-func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
+func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*Response, error) {
 	anthropicMsgs, systemPrompt, err := translateMessagesToAnthropic(msgs)
 	if err != nil {
 		return nil, err
@@ -90,7 +90,13 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 		}
 	}
 
-	return resultMsg, nil
+	return &Response{
+		Message: resultMsg,
+		Usage: Usage{
+			InputTokens:  int(resp.Usage.InputTokens),
+			OutputTokens: int(resp.Usage.OutputTokens),
+		},
+	}, nil
 }
 
 // translateMessagesToAnthropic converts the provider-neutral message slice into

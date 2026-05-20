@@ -11,6 +11,7 @@ import (
 
 	agentcontext "github.com/snowshine0216/penelope-agent/internal/context"
 	"github.com/snowshine0216/penelope-agent/internal/engine"
+	"github.com/snowshine0216/penelope-agent/internal/provider"
 	"github.com/snowshine0216/penelope-agent/internal/schema"
 	"github.com/snowshine0216/penelope-agent/internal/tools"
 )
@@ -26,22 +27,20 @@ type fakeProvider struct {
 	err           error
 }
 
-func (f *fakeProvider) Generate(_ context.Context, msgs []schema.Message, t []schema.ToolDefinition) (*schema.Message, error) {
+func (f *fakeProvider) Generate(_ context.Context, msgs []schema.Message, t []schema.ToolDefinition) (*provider.Response, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	if f.calls >= len(f.responses) {
 		return nil, errors.New("fakeProvider: ran out of canned responses")
 	}
-
 	msgsCopy := append([]schema.Message(nil), msgs...)
 	toolsCopy := append([]schema.ToolDefinition(nil), t...)
 	f.receivedMsgs = append(f.receivedMsgs, msgsCopy)
 	f.receivedTools = append(f.receivedTools, toolsCopy)
-
 	resp := f.responses[f.calls]
 	f.calls++
-	return &resp, nil
+	return &provider.Response{Message: &resp, Usage: provider.Usage{}}, nil
 }
 
 // recordingTool captures calls so tests can verify the engine actually
@@ -343,10 +342,10 @@ type loopingProvider struct {
 	calls    int
 }
 
-func (l *loopingProvider) Generate(_ context.Context, _ []schema.Message, _ []schema.ToolDefinition) (*schema.Message, error) {
+func (l *loopingProvider) Generate(_ context.Context, _ []schema.Message, _ []schema.ToolDefinition) (*provider.Response, error) {
 	l.calls++
 	r := l.response
-	return &r, nil
+	return &provider.Response{Message: &r, Usage: provider.Usage{}}, nil
 }
 
 func TestEngineStopsAtMaxTurns(t *testing.T) {
