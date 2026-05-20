@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/snowshine0216/penelope-agent/internal/schema"
-	"github.com/snowshine0216/penelope-agent/internal/tools"
+	"github.com/snowshine0216/penelope-agent/internal/truncate"
 )
 
 // ShrinkConfig parameterises Layer A.
@@ -47,7 +47,7 @@ func ShrinkApply(history []schema.Message, cfg ShrinkConfig) ([]schema.Message, 
 						"use read_tool_output(call_id=%q, start_line=N, line_count=M) to read more]...\n\n",
 					len(out[i].Content), len(out[i].Content), out[i].ToolCallID, out[i].ToolCallID,
 				)
-				out[i].Content = tools.TruncateWithMarker(out[i].Content, cfg.MaxToolBytes, marker)
+				out[i].Content = truncate.WithMarker(out[i].Content, cfg.MaxToolBytes, marker)
 				stats.ToolResultsTruncated++
 			}
 		case schema.RoleAssistant:
